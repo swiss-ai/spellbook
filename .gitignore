@@ -8,3 +8,15 @@ wheels/
 
 # Virtual environments
 .venv
+
+# extra
+.env
+sbatch_scripts/
+runs/
+experiments/
+
+# important
+zoo/presets/clusters/*
+zoo/presets/models/*
+zoo/presets/runtimes/*
+!zoo/presets/runtimes/template.yaml
