@@ -1,156 +1,168 @@
 """
-megatron-zoo CLI
+spellbook CLI
 
 Usage:
-    python main.py run <experiment.py> [--dry-run]
-    python main.py status [<name>]
-    python main.py list <experiment.py>
+    python main.py render  <experiments/foo/experiment.py>  [--only NAME] [--output-dir DIR]
+    python main.py submit  <experiments/foo/experiment.py>  [--only NAME] [--output-dir DIR]
+    python main.py list    <experiments/foo/experiment.py>  [--all | --columns COL,COL,...]
 """
 
 from __future__ import annotations
 
 import argparse
 import importlib.util
-import json
 import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
-load_dotenv()
 
 
-# ---------------------------------------------------------------------------
-# Command implementations
-# ---------------------------------------------------------------------------
+# Fields shown by default in the list table (in addition to changed fields).
+# Edit this list to suit the most commonly inspected dimensions.
+_DEFAULT_COLUMNS: list[str] = [
+    "tp", "pp", "ep", "etp", "cp",
+    "mbs", "gbs", "num_gpus",
+    "bf16", "fp8_format",
+    "moe_token_dispatcher_type",
+    "overlap_moe_expert_parallel_comm",
+]
 
-def cmd_run(args: argparse.Namespace) -> None:
-    project = _load_project(args.experiment)
-    results = project.run(dry_run=args.dry_run)
 
-    print("\n--- Results ---")
-    for name, result in results.items():
-        status = result.status.value
-        if result.error:
-            print(f"  {name}: {status} ({result.error})")
-        else:
-            print(f"  {name}: {status}")
-            for k, v in result.data.items():
-                print(f"    {k}: {v}")
+def _load_sweep(path: str, only: str | None = None):
+    """Import an experiment file and return its top-level `sweep` variable.
+
+    If `only` is given, filters the sweep to the single experiment with that name.
+    """
+    p = Path(path).resolve()
+    if not p.exists():
+        print(f"Error: file not found: {p}", file=sys.stderr)
+        sys.exit(1)
+
+    spec = importlib.util.spec_from_file_location("_experiment", p)
+    if spec is None or spec.loader is None:
+        print(f"Error: cannot load {p}", file=sys.stderr)
+        sys.exit(1)
+
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules["_experiment"] = mod
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+
+    if not hasattr(mod, "sweep"):
+        print(f"Error: {p} must define a top-level 'sweep' variable.", file=sys.stderr)
+        sys.exit(1)
+
+    sweep = mod.sweep
+
+    if only:
+        matches = [e for e in sweep.experiments if e.name == only]
+        if not matches:
+            names = [e.name for e in sweep.experiments]
+            print(f"Error: no experiment named '{only}'. Available: {', '.join(names)}", file=sys.stderr)
+            sys.exit(1)
+        sweep.experiments = matches
+
+    return sweep
+
+
+def cmd_render(args: argparse.Namespace) -> None:
+    sweep = _load_sweep(args.experiment, only=args.only)
+    paths = sweep.render(output_dir=args.output_dir)
+    print(f"Rendered {len(paths)} script(s) to {args.output_dir}/{sweep.name}/")
+    for p in paths:
+        print(f"  {p}")
+
+
+def cmd_submit(args: argparse.Namespace) -> None:
+    sweep = _load_sweep(args.experiment, only=args.only)
+    job_ids = sweep.submit(output_dir=args.output_dir)
+    print(f"\nSubmitted {len(job_ids)} job(s).")
 
 
 def cmd_list(args: argparse.Namespace) -> None:
-    project = _load_project(args.experiment)
-    print(f"Project: {project.name}")
-    for name in project.list_modules():
-        module = project._modules[name]
-        deps = f"  [depends: {', '.join(module.depends_on)}]" if module.depends_on else ""
-        print(f"  {module.__class__.__name__:<20} {name}{deps}")
-
-
-def cmd_status(args: argparse.Namespace) -> None:
-    """Read chain_state.json files under runs/ and print a status table."""
-    runs_dir = Path("runs")
-    if not runs_dir.exists():
-        print("No runs/ directory found.")
+    sweep = _load_sweep(args.experiment)
+    exps = sweep.experiments
+    if not exps:
+        print(f"Sweep '{sweep.name}': (empty)")
         return
 
-    state_files = list(runs_dir.glob("*/chain_state.json"))
-    if not state_files:
-        print("No chain state files found under runs/.")
-        return
+    changed = sweep.changed_fields()
 
-    for state_file in sorted(state_files):
-        state = json.loads(state_file.read_text())
-        chain_name = state.get("chain", state_file.parent.name)
+    if args.all:
+        # Every field in the dataclass, alphabetically (excluding name which is first)
+        extra_cols = sorted(k for k in exps[0].to_dict() if k != "name" and k != "training_args")
+    elif args.columns:
+        extra_cols = [c.strip() for c in args.columns.split(",")]
+    else:
+        # Default: changed fields + the standard set (deduplicated, preserving changed-first order)
+        seen: set[str] = set(changed)
+        extra_cols = list(changed)
+        for c in _DEFAULT_COLUMNS:
+            if c not in seen:
+                seen.add(c)
+                extra_cols.append(c)
 
-        if args.name and chain_name != args.name:
-            continue
+    # Only keep cols that actually exist in the experiment dict
+    sample = exps[0].to_dict()
+    cols = ["name"] + [c for c in extra_cols if c in sample]
 
-        print(f"\nChain: {chain_name}")
-        print(f"  {'Step':<20} {'Job ID':<12} {'Status':<12} Checkpoint")
-        print("  " + "-" * 60)
-        for step in state.get("steps", []):
-            ckpt = step.get("checkpoint") or "—"
-            print(
-                f"  {step['name']:<20} {step.get('job_id', '?'):<12} "
-                f"{step.get('status', '?'):<12} {ckpt}"
-            )
+    # Mark which columns differ (for the header indicator)
+    changed_set = set(changed)
 
+    # Column width: max of header length and any value, capped reasonably
+    col_w: dict[str, int] = {}
+    for c in cols:
+        vals = [str(e.to_dict().get(c, "")) for e in exps]
+        col_w[c] = max(len(c) + (2 if c in changed_set else 0), max(len(v) for v in vals)) + 2
 
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+    # Header: changed columns get a * marker
+    header_parts = []
+    for c in cols:
+        label = f"*{c}" if c in changed_set else c
+        header_parts.append(f"{label:<{col_w[c]}}")
+    header = "".join(header_parts)
 
-def _load_project(experiment_path: str):
-    """
-    Import an experiment Python file and return its `project` variable.
+    print(f"\nSweep: {sweep.name}  ({len(exps)} experiments)")
+    print(f"  (* = differs across experiments)\n")
+    print(header)
+    print("-" * len(header))
+    for exp in exps:
+        d = exp.to_dict()
+        row = "".join(f"{str(d.get(c, '')):<{col_w[c]}}" for c in cols)
+        print(row)
+    print()
 
-    The file must define a module-level variable named `project` that is
-    a zoo.project.Project instance.
-    """
-    path = Path(experiment_path).resolve()
-    if not path.exists():
-        print(f"Error: experiment file not found: {path}", file=sys.stderr)
-        sys.exit(1)
-
-    spec = importlib.util.spec_from_file_location("_experiment", path)
-    if spec is None or spec.loader is None:
-        print(f"Error: cannot load {path}", file=sys.stderr)
-        sys.exit(1)
-
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)  # type: ignore[union-attr]
-
-    if not hasattr(module, "project"):
-        print(
-            f"Error: {path} does not define a top-level 'project' variable.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-
-    return module.project
-
-
-# ---------------------------------------------------------------------------
-# Argument parsing
-# ---------------------------------------------------------------------------
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="megatron-zoo",
-        description="Manage Megatron-LM training experiments on SLURM clusters.",
-    )
+    parser = argparse.ArgumentParser(prog="spellbook")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    # run
-    p_run = sub.add_parser("run", help="Run an experiment file")
-    p_run.add_argument("experiment", help="Path to experiment .py file")
-    p_run.add_argument(
-        "--dry-run", action="store_true",
-        help="Render scripts and print configs without submitting to SLURM",
-    )
+    p_render = sub.add_parser("render", help="Render sbatch scripts without submitting")
+    p_render.add_argument("experiment", help="Path to experiment .py file")
+    p_render.add_argument("--only", default=None, metavar="NAME", help="Render only this experiment name")
+    p_render.add_argument("--output-dir", default="sbatch_scripts")
 
-    # list
-    p_list = sub.add_parser("list", help="List modules in an experiment file")
+    p_submit = sub.add_parser("submit", help="Render and submit all experiments")
+    p_submit.add_argument("experiment", help="Path to experiment .py file")
+    p_submit.add_argument("--only", default=None, metavar="NAME", help="Submit only this experiment name")
+    p_submit.add_argument("--output-dir", default="sbatch_scripts")
+
+    p_list = sub.add_parser("list", help="Print a summary table of all experiments")
     p_list.add_argument("experiment", help="Path to experiment .py file")
-
-    # status
-    p_status = sub.add_parser("status", help="Show status of submitted chains")
-    p_status.add_argument("name", nargs="?", default=None, help="Filter to a specific chain name")
+    col_group = p_list.add_mutually_exclusive_group()
+    col_group.add_argument("--all", action="store_true", help="Show all fields")
+    col_group.add_argument(
+        "--columns", default=None, metavar="COL,COL,...",
+        help="Comma-separated list of fields to show (always includes changed fields)",
+    )
 
     return parser
 
 
 def main() -> None:
-    parser = build_parser()
-    args = parser.parse_args()
-
-    if args.command == "run":
-        cmd_run(args)
-    elif args.command == "list":
-        cmd_list(args)
-    elif args.command == "status":
-        cmd_status(args)
+    # Load .env from the current working tree if present; do not override exported env.
+    load_dotenv(override=False)
+    args = build_parser().parse_args()
+    {"render": cmd_render, "submit": cmd_submit, "list": cmd_list}[args.command](args)
 
 
 if __name__ == "__main__":

@@ -1,166 +1,244 @@
-# megatron-zoo
+# spellbook
 
-Python framework for managing Megatron-LM training experiments on SLURM clusters.
-Replaces hand-written sbatch scripts with composable Python experiment files.
+Declarative experiment runner for Megatron-LM on SLURM.
 
-## Installation
+Spellbook lets you define experiments as Python dataclasses, generate reproducible
+job scripts, and submit sweeps without hand-editing shell scripts.
+
+## Agent Guidance
+
+If you are using coding agents in this repository, see [AGENTS.md](AGENTS.md) for
+repo-specific instructions and conventions.
+
+## Install
 
 ```bash
 uv sync
+source .venv/bin/activate
 ```
 
-## Concepts
-
-| Concept | Description |
-|---|---|
-| **Cluster preset** | SLURM account, partition, GPU count, container mounts (`zoo/presets/clusters/`) |
-| **Model preset** | Megatron architecture flags for a specific model (`zoo/presets/models/`) |
-| **Runtime preset** | Container EDF, Megatron path, mcore version (`zoo/presets/runtimes/`) |
-| **Sweep** | SLURM job array over a list of config variants (parallelism search, HP search) |
-| **ExperimentChain** | Sequential training steps with automatic checkpoint passing |
-| **Project** | Registry that runs modules in dependency order |
-
-Config merge order (lowest → highest priority):
-```
-runtime preset → model preset → chain/sweep base kwargs → per-step overrides
-```
-
-## Quick start
+Optional quality checks:
 
 ```bash
-# dry-run: renders sbatch scripts, prints configs, does not submit
-python main.py run experiments/qwen3_33b_ablation.py --dry-run
-
-# submit for real (prompts "Submit? [y/N]" before each module)
-python main.py run experiments/qwen3_33b_ablation.py
-
-# list all modules in an experiment file
-python main.py list experiments/qwen3_33b_ablation.py
-
-# check status of submitted chains
-python main.py status
-python main.py status qwen3-33b-lr-schedule
+uv run ruff check .
+uv run ty check
 ```
 
-## Writing an experiment
+## CLI
 
-```python
-from zoo.modules.chain import ExperimentChain, Step
-from zoo.modules.sweep import Sweep, variant_grid
-from zoo.project import Project
-
-CLUSTER = "clariden"
-MODEL   = "qwen3-30b-a3b"
-RUNTIME = "ngc-25-11-nemo"
-
-# --- Sweep: try multiple parallelism configs as a SLURM job array ---
-sweep = Sweep(
-    name="my-tp-sweep",
-    cluster=CLUSTER, model=MODEL, runtime=RUNTIME,
-    nodes=4, run_time="00:30:00",
-    name_prefix="G-", name_keys=["tp", "pp", "ep"],
-    # base config shared by all variants
-    seq_length=4096, mbs=1, gbs=8, train_iters=20,
-    data_path="/path/to/data",
-    checkpoint_save="/path/to/ckpt/sweep/${variant_name}",
-    tensorboard_dir="/path/to/tb/sweep/${variant_name}",
-    wandb_project="my-project",
-    wandb_exp_name="${variant_name}",
-    # grid: 6 combinations
-    variants=variant_grid(tp=[1, 2, 4], pp=[1, 2], ep=[4]),
-    max_concurrent=4,
-)
-
-# --- Chain: sequential warmup → main → cooldown ---
-chain = ExperimentChain(
-    name="my-training",
-    cluster=CLUSTER, model=MODEL, runtime=RUNTIME,
-    nodes=16, run_time="03:50:00",
-    depends_on=["my-tp-sweep"],          # runs after sweep completes
-    tp=2, pp=1, ep=4,
-    seq_length=4096, mbs=2, gbs=256,
-    data_path="/path/to/data",
-    checkpoint_save="/path/to/ckpt/training",
-    tensorboard_dir="/path/to/tb/training",
-    wandb_project="my-project",
-    steps=[
-        Step(name="warmup", wandb_exp_name="my-warmup", lr=1e-4,
-             train_tokens=1_000_000_000),
-        Step(name="main",   wandb_exp_name="my-main",   lr=3e-4,
-             train_tokens=50_000_000_000, override_opt_param_scheduler=True),
-        Step(name="cooldown", wandb_exp_name="my-cooldown", lr=1e-5,
-             train_tokens=5_000_000_000, override_opt_param_scheduler=True),
-    ],
-)
-
-project = Project(name="my-project", cluster=CLUSTER)
-project.add(sweep)
-project.add(chain)
+```bash
+python main.py list   experiments/big_moe_speed_ablations/experiment.py
+python main.py render experiments/big_moe_speed_ablations/experiment.py
+python main.py submit experiments/big_moe_speed_ablations/experiment.py
 ```
 
-## Variant grids
+If you prefer explicit uv execution:
 
-```python
-from zoo.modules.sweep import variant_grid
-
-# full grid — all combinations
-variant_grid(tp=[1, 2, 4], pp=[1, 2], ep=[4, 8])
-
-# partial grid — concatenate sub-grids
-variant_grid(tp=[1, 2, 4], pp=[1], ep=[4, 8]) + \
-variant_grid(tp=[1, 2],    pp=[2], ep=[8])
-
-# manual names — set variant_name in the dict to override auto-naming
-[
-    dict(tp=1, pp=1, ep=4, variant_name="baseline"),
-    dict(tp=2, pp=1, ep=4, variant_name="tp2"),
-    *variant_grid(tp=[4], pp=[1, 2], ep=[4]),   # auto-named
-]
+```bash
+uv run python main.py list experiments/big_moe_speed_ablations/experiment.py
 ```
 
-## Presets
+Options:
+- `--only NAME`: render/submit a single experiment from a sweep.
+- `--output-dir DIR`: where generated scripts/CSVs are written (default: `sbatch_scripts`).
+- `list --all`: show all experiment fields.
+- `list --columns a,b,c`: show selected fields.
 
-### Cluster
-`zoo/presets/clusters/<name>.yaml` — SLURM account, partition, GPU count, container mounts, ENV_VARS.
+## `.env` support
 
-### Model
-`zoo/presets/models/<name>.yaml` — Megatron architecture flags (MODEL_ARGS).
+Spellbook loads `.env` automatically in `main.py` startup using `python-dotenv`.
 
-### Runtime
-`zoo/presets/runtimes/<name>.yaml` — container EDF, Megatron path, mcore version.
-Copy `template.yaml` to add a new one.
+Behavior:
+- `.env` is optional.
+- Existing exported environment variables are not overwritten.
+- `.env` is gitignored in this repo.
 
-Available runtimes:
-- `ngc-25-11-nemo` — NGC 25.11 NeMo container, Megatron-LM mcore 0.15
-
-## Secrets
-
-Create a `.env` file at the project root (gitignored):
+Example:
 
 ```bash
 WANDB_API_KEY=...
 HF_TOKEN=...
+MEGATRON_PATH=/path/to/Megatron-LM
+DATA_PATH=/path/to/data
+TOKENIZER_MODEL=/path/to/tokenizer.model
+CHECKPOINT_SAVE=/path/to/checkpoints
+SLURM_ACCOUNT=a139
+SLURM_PARTITION=normal
+CONTAINER_EDF=apertus2-alps4-temp
+CONTAINER_MOUNTS=${SCRATCH}:${SCRATCH},${HOME}:${HOME},/capstor:/capstor,/iopsstor:/iopsstor
 ```
 
-These are loaded automatically on startup and forwarded into the SLURM container via `srun --export=`.
+Recommended starting `.env` for this repository:
 
-## Project layout
-
+```bash
+SLURM_ACCOUNT=a139
+SLURM_PARTITION=normal
+CONTAINER_EDF=apertus2-alps4-temp
+CONTAINER_MOUNTS=${SCRATCH}:${SCRATCH},${HOME}:${HOME},/capstor:/capstor,/iopsstor:/iopsstor
+MEGATRON_PATH=$HOME/open_source/Megatron-LM-upstream
+TOKENIZER_MODEL=swiss-ai/Apertus-70B-2509
 ```
-zoo/
+
+## Core concepts
+
+- `Experiment`: base dataclass with `change()`, `sweep()`, `diff()`, `to_dict()`.
+- `MegatronExperiment`: rich experiment schema plus Megatron CLI flag translation.
+- `Sweep`: named collection of experiments rendered/submitted together.
+- `SlurmBackend`: renders Jinja templates and submits via `sbatch` or runs via `srun`.
+
+## Minimal experiment file
+
+An experiment module must expose a top-level `sweep` variable.
+
+```python
+from spellbook.backends import SlurmBackend
+from spellbook.core import Sweep
+from spellbook.megatron import MegatronExperiment
+
+BASE = MegatronExperiment(
+    name="my-base",
+    megatron_path="/path/to/megatron",
+    data_path="/path/to/data",
+    tokenizer_model="/path/to/tokenizer.model",
+    save="/path/to/checkpoints",
+    num_layers=24,
+    hidden_size=4096,
+    ffn_hidden_size=11008,
+    num_attention_heads=32,
+    seq_length=4096,
+    vocab_size=131072,
+    tp=2,
+    pp=2,
+    ep=1,
+    num_gpus=16,
+    mbs=1,
+    gbs=128,
+    train_tokens=10_000_000,
+    lr=3e-4,
+    min_lr=3e-5,
+    wandb_project="spellbook-demo",
+)
+
+backend = SlurmBackend(
+    account="a139",
+    partition="normal",
+    nodes=None,          # auto-derive from experiment.num_gpus / gpus_per_node
+    gpus_per_node=4,
+    run_time="01:00:00",
+    extra={
+        "container_edf": "apertus2-alps4-temp",
+        "container_mounts": "${SCRATCH}:${SCRATCH},${HOME}:${HOME}",
+    },
+)
+
+sweep = Sweep(
+    name="demo-sweep",
+    experiments=[
+        BASE,
+        BASE.change("my-tp4", tp=4, pp=1),
+    ],
+    backend=backend,
+)
+```
+
+## Sweep helpers
+
+Use convenience constructors from `spellbook.core`:
+
+```python
+from spellbook.core import sweep_axis, sweep_grid
+
+# one-axis
+sweep = sweep_axis(BASE, "tp", [1, 2, 4], backend=backend, name="tp-sweep")
+
+# grid
+sweep = sweep_grid(
+    BASE,
+    {"tp": [1, 2, 4], "ep": [4, 8]},
+    backend=backend,
+    name="tp-ep-grid",
+)
+```
+
+## Backend behavior
+
+`SlurmBackend` modes:
+- default: render `slurm.sh.j2` and submit with `sbatch`.
+- `srun_job_id` set: render `srun.sh.j2` and execute script with `bash` in an existing allocation.
+- `mem_estimator=True`: render `mem_estimator.sh.j2`.
+
+Important fields:
+- `extra`: generic Jinja template context (for example `container_edf`, `container_mounts`).
+- `srun_extra_args`: extra raw flags inserted into every `srun` command.
+- `reservation`: added to sbatch header and sbatch invocation.
+
+`srun_extra_args` is not the same as `extra`.
+
+## Output artifacts
+
+`render` and `submit` create:
+- one script per experiment at `sbatch_scripts/<sweep_name>/<experiment_name>.sh`
+- `experiments.csv` in the same folder (with `training_args` omitted)
+
+## Typical workflow
+
+```bash
+# 1) Inspect sweep variants and changed fields
+python main.py list experiments/big_moe_speed_ablations/experiment.py
+
+# 2) Render scripts without submitting
+python main.py render experiments/big_moe_speed_ablations/experiment.py
+
+# 3) Submit one variant first (sanity check)
+python main.py submit experiments/big_moe_speed_ablations/experiment.py --only DEEPSEEK_V3_BASE
+
+# 4) Submit full sweep
+python main.py submit experiments/big_moe_speed_ablations/experiment.py
+```
+
+Running inside an existing allocation:
+
+- Set `srun_job_id` on `SlurmBackend`.
+- Render or submit as usual.
+- Spellbook will use the `srun.sh.j2` path and execute scripts with `bash`.
+
+## Megatron flag mapping
+
+Most dataclass fields map automatically:
+- `snake_case` field name -> `--kebab-case` Megatron CLI flag.
+- Booleans: `True` emits bare flag, `False` omitted.
+- Lists emit space-joined values, except `moe_layer_freq`.
+- `moe_layer_freq` emits compact bracketed form with no spaces (for example `[1,1,1]`).
+- Rendered scripts keep each flag and its value on the same line.
+- Aliases: `tp`, `pp`, `ep`, `etp`, `cp`, `vpp`, `mbs`, `gbs` map to canonical Megatron flags.
+- Special: `train_tokens` becomes `--train-samples train_tokens // seq_length`.
+
+## Repository layout
+
+```text
+spellbook/
   backends/
-    megatron.py      # alias → --flag-name translation
-    slurm.py         # JobSpec → sbatch script + submission
-  modules/
-    chain.py         # ExperimentChain + Step
-    sweep.py         # Sweep + variant_grid
-  presets/
-    clusters/        # clariden.yaml, …
-    models/          # qwen3-30b-a3b.yaml, …
-    runtimes/        # ngc-25-11-nemo.yaml, template.yaml
-  config.py          # YAML loading, merging, template resolution
-  module.py          # Module, JobSpec, ModuleResult base classes
-  project.py         # Project (dependency-ordered runner)
-experiments/         # experiment files (one per project/ablation)
-main.py              # CLI entry point
+    slurm_megatron/
+      slurm.py
+      slurm.sh.j2
+      srun.sh.j2
+      mem_estimator.sh.j2
+  core/
+    experiment.py
+    sweep.py
+  megatron/
+    experiment.py
+    flags.py
+experiments/
+  big_moe_speed_ablations/
+  big_moe_speed_ablations_example/
+main.py
+```
+
+## Development
+
+```bash
+uv sync
+uv run ruff check .
+uv run ty check
 ```

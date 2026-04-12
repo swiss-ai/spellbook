@@ -13,10 +13,13 @@ wheels/
 .env
 sbatch_scripts/
 runs/
-experiments/
 
-# important
-zoo/presets/clusters/*
-zoo/presets/models/*
-zoo/presets/runtimes/*
-!zoo/presets/runtimes/template.yaml
+# logs
+slurm_logs/
+nsys/
+
+# Important
+!experiments/
+experiments/*
+!experiments/big_moe_speed_ablations_example/
+!experiments/data/

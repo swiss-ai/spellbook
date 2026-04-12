@@ -1,0 +1,111 @@
+#!/bin/bash
+# Run inside an existing SLURM allocation.
+# Usage: bash <script>.sh   (from inside salloc or an existing job)
+# SRUN_JOB_ID must match the allocation you want to use.
+set -euxo pipefail
+
+export SRUN_JOB_ID="{{ srun_job_id }}"
+
+# Resolve node list from the allocation
+export SLURM_JOB_NODELIST=$(scontrol show job -o "${SRUN_JOB_ID}" \
+    | tr ' ' '\n' \
+    | awk -F= '$1=="NodeList"{print $2}' \
+    | awk '$0 != "(null)" {print; exit}')
+
+export GPUS_PER_NODE="{{ gpus_per_node }}"
+export HOSTNAMES="$(scontrol show hostnames ${SLURM_JOB_NODELIST})"
+export MASTER_ADDR="$(scontrol show hostnames ${SLURM_JOB_NODELIST} | head -n 1)"
+export MASTER_PORT="${MASTER_PORT:-6800}"
+export WORLD_SIZE="{{ nodes }}"
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+export CUDA_CACHE_DISABLE=1
+
+echo "Job ID:      ${SRUN_JOB_ID}"
+echo "Nodes:       ${SLURM_JOB_NODELIST}"
+echo "Master addr: ${MASTER_ADDR}:${MASTER_PORT}"
+echo "World size:  ${WORLD_SIZE}"
+
+srun \
+  --jobid="${SRUN_JOB_ID}" \
+  -N {{ nodes }} \
+  --ntasks={{ nodes }} \
+  --ntasks-per-node=1 \
+  --gres=gpu:{{ gpus_per_node }} \
+  --export=LOCAL_RANK,RANK,GPUS_PER_NODE,HOSTNAMES,MASTER_ADDR,MASTER_PORT,WORLD_SIZE,TORCH_NCCL_ASYNC_ERROR_HANDLING,CUDA_CACHE_DISABLE,WANDB_API_KEY,WANDB_PROJECT,WANDB_MODE,WANDB_RESUME,WANDB_RUN_ID,HF_TOKEN,HF_HUB_ENABLE_HF_TRANSFER,PYTHONPATH,MEGATRON_PATH,NCCL_DEBUG,NCCL_DEBUG_SUBSYS,NCCL_NVLS_ENABLE,NVTE_ALLOW_NONDETERMINISTIC_ALGO,NVTE_NVTX_ENABLED,CUDA_DEVICE_MAX_CONNECTIONS,NVTE_FWD_LAYERNORM_SM_MARGIN,NVTE_BWD_LAYERNORM_SM_MARGIN,PYTORCH_CUDA_ALLOC_CONF,TRITON_HOME,TRITON_CACHE_DIR,TORCHINDUCTOR_CACHE_DIR,SLURM_NETWORK \
+  --mpi=pmix -l \
+{%- if container_edf is defined and container_edf %}
+  --environment="{{ container_edf }}" \
+{%- endif %}
+{%- if container_mounts is defined and container_mounts %}
+  --container-mounts="{{ container_mounts }}" \
+{%- endif %}
+{%- if container_workdir is defined and container_workdir %}
+  --container-workdir="{{ container_workdir }}" \
+{%- endif %}
+  --no-container-mount-home \
+  {{ srun_extra_args }} \
+  -u bash -lc '
+set -x
+ulimit -c 0
+
+export LOCAL_RANK=${SLURM_LOCALID}
+export RANK="${SLURM_PROCID}"
+
+# Re-export paths inside container
+export MEGATRON_PATH="{{ megatron_path }}"
+{% set ns = namespace(py_paths=[]) %}{% for var in pythonpath_env_vars %}{% if env_vars.get(var) %}{% set ns.py_paths = ns.py_paths + [env_vars.get(var)] %}{% endif %}{% endfor %}
+export PYTHONPATH="{{ (ns.py_paths + [megatron_path]) | join(':') }}:${PYTHONPATH:-}"
+{% for key, value in env_vars.items() %}
+export {{ key }}="{{ value }}"
+{%- endfor %}
+
+# Per-process Triton / inductor caches on local storage
+export TRITON_HOME=/tmp/.triton/${SLURM_PROCID}
+export TRITON_CACHE_DIR=${TRITON_HOME}/cache
+export TORCHINDUCTOR_CACHE_DIR=/tmp/.torch_inductor/${SLURM_PROCID}
+mkdir -p ${TRITON_CACHE_DIR} ${TORCHINDUCTOR_CACHE_DIR}
+{% if profile %}
+export NVTE_NVTX_ENABLED=1
+mkdir -p {{ nsys_output }}
+PROFILE_CMD="nsys profile \
+  --sample=none --cpuctxsw=none \
+  -t {{ profile_types }} \
+  --capture-range=cudaProfilerApi \
+  --capture-range-end=stop \
+  --cuda-graph-trace=node \
+  --pytorch={{ pytorch_nsys_profile }} \
+  --python-sampling={{ "true" if python_sampling else "false" }} \
+  --nic-metrics={{ nic_metrics }} \
+  --stats=false \
+  -f true -x true \
+  -o {{ nsys_output }}/{{ job_name }}-${SLURM_PROCID}"
+{% else %}
+PROFILE_CMD=""
+{% endif %}
+{% if debug %}
+DEBUG_CMD="python -m debugpy --listen 0.0.0.0:{{ debug_port }} --wait-for-client -m"
+{% else %}
+DEBUG_CMD=""
+{% endif %}
+unset RANK LOCAL_RANK WORLD_SIZE
+NODE_ID="${SLURM_PROCID:-${SLURM_NODEID}}"
+if [[ "${NODE_ID}" == "0" ]]; then
+    ${PROFILE_CMD} ${DEBUG_CMD} python -m torch.distributed.run \
+      --nproc_per_node "${SLURM_GPUS_ON_NODE:-{{ gpus_per_node }}}" \
+      --nnodes "{{ nodes }}" \
+      --node_rank "${NODE_ID}" \
+      --master_addr "${MASTER_ADDR}" \
+      --master_port "${MASTER_PORT}" \
+      {{ megatron_path }}/{{ training_script }} \
+      {{ training_args_lines | join(" \\\n      ") }} 2>&1 | tee "{{ log_dir }}/{{ job_name }}-${SRUN_JOB_ID}-node0.out"
+else
+    ${PROFILE_CMD} ${DEBUG_CMD} python -m torch.distributed.run \
+      --nproc_per_node "${SLURM_GPUS_ON_NODE:-{{ gpus_per_node }}}" \
+      --nnodes "{{ nodes }}" \
+      --node_rank "${NODE_ID}" \
+      --master_addr "${MASTER_ADDR}" \
+      --master_port "${MASTER_PORT}" \
+      {{ megatron_path }}/{{ training_script }} \
+      {{ training_args_lines | join(" \\\n      ") }} > /dev/null 2>&1
+fi
+'
