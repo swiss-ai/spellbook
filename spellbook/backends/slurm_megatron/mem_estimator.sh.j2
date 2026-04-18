@@ -30,8 +30,7 @@ srun \
   {{ srun_extra_args }} \
   -u bash -c '
 export MEGATRON_PATH="{{ megatron_path }}"
-{% set ns = namespace(py_paths=[]) %}{% for var in pythonpath_env_vars %}{% if env_vars.get(var) %}{% set ns.py_paths = ns.py_paths + [env_vars.get(var)] %}{% endif %}{% endfor %}
-export PYTHONPATH="{{ (ns.py_paths + [megatron_path]) | join(':') }}:${PYTHONPATH:-}"
+export PYTHONPATH="{{ pythonpath }}:${PYTHONPATH:-}"
 {% for key, value in env_vars.items() %}
 export {{ key }}="{{ value }}"
 {%- endfor %}

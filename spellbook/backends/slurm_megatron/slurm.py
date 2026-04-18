@@ -43,6 +43,33 @@ from spellbook.core.experiment import Experiment
 
 _TEMPLATES_DIR = Path(__file__).parent  # slurm_megatron/
 
+# Variables always forwarded to srun workers regardless of experiment env_vars.
+_SRUN_INFRA_EXPORTS = [
+    "LOCAL_RANK",
+    "RANK",
+    "GPUS_PER_NODE",
+    "HOSTNAMES",
+    "MASTER_ADDR",
+    "MASTER_PORT",
+    "WORLD_SIZE",
+    "SLURM_JOB_ID",
+    "TORCH_NCCL_ASYNC_ERROR_HANDLING",
+    "CUDA_CACHE_DISABLE",
+    "WANDB_API_KEY",
+    "WANDB_PROJECT",
+    "WANDB_MODE",
+    "WANDB_RESUME",
+    "WANDB_RUN_ID",
+    "HF_TOKEN",
+    "HF_HUB_ENABLE_HF_TRANSFER",
+    "PYTHONPATH",
+    "MEGATRON_PATH",
+    "TRITON_HOME",
+    "TRITON_CACHE_DIR",
+    "TORCHINDUCTOR_CACHE_DIR",
+    "SLURM_NETWORK",
+]
+
 
 @dataclass
 class SlurmBackend:
@@ -169,6 +196,7 @@ class SlurmBackend:
         d["training_args_lines"] = self._format_training_args_lines(d.get("training_args") or [])
         # Backend env vars are infrastructure defaults; experiment env_vars override them.
         d["env_vars"] = {**self.env_vars, **(d.get("env_vars") or {})}
+        d["env_vars"].setdefault("MEGATRON_PATH", d.get("megatron_path") or "")
         self._inject_git_metadata_env_vars(d)
         # Derive nodes from experiment if not explicitly set on the backend
         nodes = self.nodes
@@ -184,6 +212,16 @@ class SlurmBackend:
         mem_estimator_path = d.get("mem_estimator_path") or str(
             _TEMPLATES_DIR / "memory_estimator"
         )
+        env_vars: dict = d.get("env_vars") or {}
+        pythonpath_parts = [
+            str(env_vars[var])
+            for var in self.pythonpath_env_vars
+            if env_vars.get(var)
+        ]
+        srun_export_vars = ",".join(
+            dict.fromkeys(_SRUN_INFRA_EXPORTS + list(env_vars.keys()))
+        )
+
         ctx = {
             **d,
             **self.extra,
@@ -194,10 +232,14 @@ class SlurmBackend:
             "run_time": self.run_time,
             "log_dir": self.log_dir,
             "job_name": experiment.name,
+            "exp_name": experiment.name,
+            "wandb_exp_name": d.get("wandb_exp_name", experiment.name),
             "reservation": self.reservation,
             "srun_job_id": self.srun_job_id,
             "srun_extra_args": self.srun_extra_args,
             "pythonpath_env_vars": self.pythonpath_env_vars,
+            "pythonpath": ":".join(pythonpath_parts),
+            "srun_export_vars": srun_export_vars,
             "mem_estimator_path": mem_estimator_path,
             "create_data_config_path": str(_TEMPLATES_DIR / "create_data_config.py"),
         }

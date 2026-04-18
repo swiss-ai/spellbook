@@ -31,7 +31,7 @@ srun \
   --ntasks={{ nodes }} \
   --ntasks-per-node=1 \
   --gres=gpu:{{ gpus_per_node }} \
-  --export=LOCAL_RANK,RANK,GPUS_PER_NODE,HOSTNAMES,MASTER_ADDR,MASTER_PORT,WORLD_SIZE,TORCH_NCCL_ASYNC_ERROR_HANDLING,CUDA_CACHE_DISABLE,WANDB_API_KEY,WANDB_PROJECT,WANDB_MODE,WANDB_RESUME,WANDB_RUN_ID,HF_TOKEN,HF_HUB_ENABLE_HF_TRANSFER,PYTHONPATH,MEGATRON_PATH,NCCL_DEBUG,NCCL_DEBUG_SUBSYS,NCCL_NVLS_ENABLE,NVTE_ALLOW_NONDETERMINISTIC_ALGO,NVTE_NVTX_ENABLED,CUDA_DEVICE_MAX_CONNECTIONS,NVTE_FWD_LAYERNORM_SM_MARGIN,NVTE_BWD_LAYERNORM_SM_MARGIN,PYTORCH_CUDA_ALLOC_CONF,TRITON_HOME,TRITON_CACHE_DIR,TORCHINDUCTOR_CACHE_DIR,SLURM_NETWORK \
+  --export={{ srun_export_vars }} \
   --mpi=pmix -l \
 {%- if container_edf is defined and container_edf %}
   --environment="{{ container_edf }}" \
@@ -53,8 +53,7 @@ export RANK="${SLURM_PROCID}"
 
 # Re-export paths inside container
 export MEGATRON_PATH="{{ megatron_path }}"
-{% set ns = namespace(py_paths=[]) %}{% for var in pythonpath_env_vars %}{% if env_vars.get(var) %}{% set ns.py_paths = ns.py_paths + [env_vars.get(var)] %}{% endif %}{% endfor %}
-export PYTHONPATH="{{ (ns.py_paths + [megatron_path]) | join(':') }}:${PYTHONPATH:-}"
+export PYTHONPATH="{{ pythonpath }}:${PYTHONPATH:-}"
 {% for key, value in env_vars.items() %}
 export {{ key }}="{{ value }}"
 {%- endfor %}
