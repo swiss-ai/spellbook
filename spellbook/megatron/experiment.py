@@ -21,6 +21,7 @@ Subclass this for a specific experiment type and add extra fields::
 from __future__ import annotations
 
 import dataclasses
+import warnings
 from typing import Any
 
 from spellbook.core.experiment import Experiment
@@ -189,6 +190,10 @@ class MegatronExperiment(Experiment):
     eval_iters: int | None = None
     eval_interval: int | None = None
 
+    # --- Checkpointing (resume) ---
+    ckpt_step: int | None = None
+    override_opt_param_schedule: bool = False
+
     # --- Misc ---
     async_save: bool = False
     delay_wgrad_compute: bool = False
@@ -226,13 +231,53 @@ class MegatronExperiment(Experiment):
     debug: bool = False
     debug_port: int = 5678
 
+    def resume_from(self, name: str, ckpt_step: int, **kwargs: Any) -> Experiment:
+        """Return a variant that resumes from a checkpoint step.
+
+        Sets ckpt_step and override_opt_param_schedule=True by default.
+        Pass override_opt_param_schedule=False to suppress it.
+        Any other field can be overridden via kwargs (e.g. save, lr_warmup_iters).
+        """
+        kwargs.setdefault("override_opt_param_schedule", True)
+
+        if "save" not in kwargs and self.save:
+            warnings.warn(
+                f"resume_from({name!r}): 'save' is unchanged from the source experiment "
+                f"({self.save!r}). The resumed run will overwrite the original checkpoint. "
+                "Pass save=... to use a different path.",
+                stacklevel=2,
+            )
+
+        _SCHEDULE_FIELDS = {
+            "lr_warmup_iters", "lr_warmup_samples",
+            "lr_decay_samples", "lr_wsd_decay_iters",
+            "lr_decay_style", "train_tokens",
+        }
+        if kwargs.get("override_opt_param_schedule", True) and not (_SCHEDULE_FIELDS & kwargs.keys()):
+            warnings.warn(
+                f"resume_from({name!r}): --override-opt-param-schedule is set but no "
+                "schedule fields were changed (lr_warmup_iters, lr_wsd_decay_iters, "
+                "train_tokens, ...). Pass the relevant fields to update the schedule.",
+                stacklevel=2,
+            )
+
+        return self.change(name, ckpt_step=ckpt_step, **kwargs)
+
     def __post_init__(self) -> None:
-        # dataclasses.replace() shallow-copies the instance, so mutable fields
-        # like env_vars share the same dict object across parent and child.
-        # Copy here so subclass __post_init__ mutations don't bleed across variants.
         self.env_vars = dict(self.env_vars)
         if self.num_gpus is not None:
             self.dp = self.num_gpus // (self.tp * self.pp * self.cp)
+
+        if not self.save:
+            warnings.warn(
+                f"{self.name!r}: 'save' is empty — checkpoints will not be written.",
+                stacklevel=3,
+            )
+        if not self.load:
+            warnings.warn(
+                f"{self.name!r}: 'load' is empty — training will start from scratch.",
+                stacklevel=3,
+            )
 
     # ------------------------------------------------------------------
     # Derived quantities
