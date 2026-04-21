@@ -64,6 +64,9 @@ _SRUN_INFRA_EXPORTS = [
     "HF_HUB_ENABLE_HF_TRANSFER",
     "PYTHONPATH",
     "MEGATRON_PATH",
+    "MEGATRON_GIT_BRANCH",
+    "MEGATRON_GIT_COMMIT",
+    "MEGATRON_GIT_URL",
     "TRITON_HOME",
     "TRITON_CACHE_DIR",
     "TORCHINDUCTOR_CACHE_DIR",
@@ -197,7 +200,6 @@ class SlurmBackend:
         # Backend env vars are infrastructure defaults; experiment env_vars override them.
         d["env_vars"] = {**self.env_vars, **(d.get("env_vars") or {})}
         d["env_vars"].setdefault("MEGATRON_PATH", d.get("megatron_path") or "")
-        self._inject_git_metadata_env_vars(d)
         # Derive nodes from experiment if not explicitly set on the backend
         nodes = self.nodes
         if nodes is None:

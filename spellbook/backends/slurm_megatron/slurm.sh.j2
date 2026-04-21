@@ -29,6 +29,25 @@ export SLURM_JOB_ID="${SLURM_JOB_ID}"
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export CUDA_CACHE_DISABLE=1
 
+# --- Megatron worktree pin ---
+{% if megatron_commit %}
+MEGATRON_WORKTREE_PATH="${SCRATCH}/tmp/megatron_worktree_{{ megatron_commit }}"
+if [[ ! -d "${MEGATRON_WORKTREE_PATH}" ]]; then
+  echo "Creating Megatron-LM worktree at commit {{ megatron_commit }}"
+  mkdir -p "$(dirname "${MEGATRON_WORKTREE_PATH}")"
+  git -C "{{ megatron_path }}" worktree add "${MEGATRON_WORKTREE_PATH}" "{{ megatron_commit }}"
+fi
+export MEGATRON_PATH="${MEGATRON_WORKTREE_PATH}"
+{% endif %}
+
+# --- Megatron git metadata (resolved at runtime from final MEGATRON_PATH) ---
+export MEGATRON_GIT_BRANCH="$(git -C "${MEGATRON_PATH}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+export MEGATRON_GIT_COMMIT="$(git -C "${MEGATRON_PATH}" rev-parse HEAD 2>/dev/null || echo unknown)"
+export MEGATRON_GIT_URL="$(git -C "${MEGATRON_PATH}" remote get-url origin 2>/dev/null || echo unknown)"
+echo "Megatron branch: ${MEGATRON_GIT_BRANCH}"
+echo "Megatron commit: ${MEGATRON_GIT_COMMIT}"
+echo "Megatron url:    ${MEGATRON_GIT_URL}"
+
 # --- Launch ---
 srun \
   --export={{ srun_export_vars }} \
@@ -48,10 +67,12 @@ set -x
 ulimit -c 0
 
 # Re-export inside srun in case the container does not preserve sbatch exports
-export MEGATRON_PATH="{{ megatron_path }}"
+export MEGATRON_PATH="${MEGATRON_PATH:-{{ megatron_path }}}"
 export PYTHONPATH="{{ pythonpath }}:${PYTHONPATH:-}"
 {% for key, value in env_vars.items() %}
+{%- if key != "MEGATRON_PATH" %}
 export {{ key }}="{{ value }}"
+{%- endif %}
 {%- endfor %}
 
 # Per-process Triton / inductor caches on local storage
@@ -65,7 +86,7 @@ mkdir -p ${TRITON_CACHE_DIR} ${TORCHINDUCTOR_CACHE_DIR}
 DATA_PATH="{{ data_path }}"
 {% elif base_data_path %}
 RAW_PATHS=$(python3 "{{ create_data_config_path }}" -p "{{ base_data_path }}")
-DATA_PATH=$(echo $RAW_PATHS | sed 's/\([^ ]*\)/1.0 \1/g')
+DATA_PATH=$(echo $RAW_PATHS | sed "s/\([^ ]*\)/1.0 \1/g")
 {% else %}
 DATA_PATH=""
 {% endif %}
@@ -98,7 +119,7 @@ ${PROFILE_CMD} ${DEBUG_CMD} python -m torch.distributed.run \
   --node_rank "${SLURM_PROCID}" \
   --master_addr "${MASTER_ADDR}" \
   --master_port "${MASTER_PORT}" \
-  {{ megatron_path }}/{{ training_script }} \
+  ${MEGATRON_PATH}/{{ training_script }} \
   {{ training_args_lines | join(" \\\n  ") }} \
   ${DATA_PATH:+--data-path ${DATA_PATH}}
 '
