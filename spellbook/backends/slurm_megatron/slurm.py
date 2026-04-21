@@ -32,6 +32,7 @@ Running inside an existing allocation (srun mode)::
 from __future__ import annotations
 
 import subprocess
+import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -39,6 +40,7 @@ from typing import Any
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
+from spellbook.backends.slurm_megatron.create_data_config import create_data_prefix
 from spellbook.core.experiment import Experiment
 
 _TEMPLATES_DIR = Path(__file__).parent  # slurm_megatron/
@@ -127,6 +129,13 @@ class SlurmBackend:
             return str(exp_env[name])
         return ""
 
+    @staticmethod
+    def _shell_quote_value(value: str) -> str:
+        """Wrap value in double quotes if it contains shell-special characters."""
+        if any(c in value for c in ("|", "(", ")", "*", "&", ";", "<", ">", "`", "!")):
+            return f'"{value}"'
+        return value
+
     def _format_training_args_lines(self, training_args: list[Any]) -> list[str]:
         """Keep each --flag and its value on the same rendered line."""
         lines: list[str] = []
@@ -137,7 +146,7 @@ class SlurmBackend:
                 if i + 1 < len(training_args):
                     next_token = str(training_args[i + 1])
                     if not next_token.startswith("--"):
-                        lines.append(f"{token} {next_token}")
+                        lines.append(f"{token} {self._shell_quote_value(next_token)}")
                         i += 2
                         continue
                 lines.append(token)
@@ -197,6 +206,22 @@ class SlurmBackend:
 
         d = experiment.to_dict()
         d["training_args_lines"] = self._format_training_args_lines(d.get("training_args") or [])
+        # Resolve base_data_path → data_path at render time so the script embeds literal paths.
+        if not d.get("data_path") and d.get("base_data_path"):
+            prefixes = create_data_prefix([d["base_data_path"]])
+            if not prefixes:
+                warnings.warn(
+                    f"[{experiment.name}] base_data_path '{d['base_data_path']}' "
+                    "resolved to zero dataset shards — DATA_PATH will be empty.",
+                    stacklevel=2,
+                )
+            d["data_path"] = " ".join(f"1.0 {p}" for p in prefixes)
+        elif not d.get("data_path"):
+            warnings.warn(
+                f"[{experiment.name}] Neither data_path nor base_data_path is set — "
+                "DATA_PATH will be empty in the generated script.",
+                stacklevel=2,
+            )
         # Backend env vars are infrastructure defaults; experiment env_vars override them.
         d["env_vars"] = {**self.env_vars, **(d.get("env_vars") or {})}
         d["env_vars"].setdefault("MEGATRON_PATH", d.get("megatron_path") or "")
@@ -243,7 +268,6 @@ class SlurmBackend:
             "pythonpath": ":".join(pythonpath_parts),
             "srun_export_vars": srun_export_vars,
             "mem_estimator_path": mem_estimator_path,
-            "create_data_config_path": str(_TEMPLATES_DIR / "create_data_config.py"),
         }
         return tmpl.render(ctx)
 

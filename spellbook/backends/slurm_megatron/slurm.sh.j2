@@ -84,9 +84,6 @@ mkdir -p ${TRITON_CACHE_DIR} ${TORCHINDUCTOR_CACHE_DIR}
 # --- Data path ---
 {% if data_path %}
 DATA_PATH="{{ data_path }}"
-{% elif base_data_path %}
-RAW_PATHS=$(python3 "{{ create_data_config_path }}" -p "{{ base_data_path }}")
-DATA_PATH=$(echo $RAW_PATHS | sed "s/\([^ ]*\)/1.0 \1/g")
 {% else %}
 DATA_PATH=""
 {% endif %}
