@@ -32,6 +32,7 @@ from spellbook.megatron import flags as megatron_flags
 class MegatronExperiment(Experiment):
     # --- Megatron path ---
     megatron_path: str = ""
+    megatron_commit: str = ""  # if set, a git worktree is created at this commit and used instead
     training_script: str = "pretrain_gpt.py"
 
     # --- Environment variables injected into the sbatch script ---
@@ -43,6 +44,7 @@ class MegatronExperiment(Experiment):
     ffn_hidden_size: int = 0
     num_attention_heads: int = 0
     num_query_groups: int = 0
+    kv_channels: int | None = None
     max_position_embeddings: int | None = None
     seq_length: int = 0
     vocab_size: int = 0
@@ -166,7 +168,7 @@ class MegatronExperiment(Experiment):
     data_path: str = ""        # explicit weighted data-path string (passed as-is to Megatron)
     tokenizer_type: str = "HuggingFaceTokenizer"
     tokenizer_model: str = ""
-    split: str = "99,1,0"
+    split: str = "100,0,0"
     no_mmap_bin_files: bool = False
     num_workers: int = 4
     dataloader_type: str = "cyclic"
@@ -196,6 +198,7 @@ class MegatronExperiment(Experiment):
 
     # --- Misc ---
     async_save: bool = False
+    use_persistent_ckpt_worker: bool = False
     delay_wgrad_compute: bool = False
     no_check_for_nan_in_loss_and_grad: bool = False
     auto_detect_ckpt_format: bool = False

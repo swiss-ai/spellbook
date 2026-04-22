@@ -45,6 +45,7 @@ _SKIP = frozenset({
     "train_tokens",
     # Infra fields handled by the backend, not Megatron CLI
     "megatron_path",
+    "megatron_commit",
     "training_script",
     # Spellbook-level parallelism helpers (num_gpus drives dp, not a Megatron flag)
     "num_gpus",
