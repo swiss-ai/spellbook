@@ -106,11 +106,11 @@ PROFILE_CMD="nsys profile \
 PROFILE_CMD=""
 {% endif %}
 {% if debug %}
-DEBUG_CMD="python -m debugpy --listen 0.0.0.0:{{ debug_port }} --wait-for-client -m"
+DEBUG_CMD="-m debugpy --listen 0.0.0.0:{{ debug_port }} --wait-for-client"
 {% else %}
 DEBUG_CMD=""
 {% endif %}
-${PROFILE_CMD} ${DEBUG_CMD} python -m torch.distributed.run \
+${PROFILE_CMD} python ${DEBUG_CMD} -m torch.distributed.run \
   --nproc_per_node "${SLURM_GPUS_ON_NODE}" \
   --nnodes "{{ nodes }}" \
   --node_rank "${SLURM_PROCID}" \
