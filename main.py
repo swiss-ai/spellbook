@@ -5,6 +5,7 @@ Usage:
     python main.py render  <experiments/foo/experiment.py>  [--only NAME] [--output-dir DIR]
     python main.py submit  <experiments/foo/experiment.py>  [--only NAME] [--output-dir DIR]
     python main.py list    <experiments/foo/experiment.py>  [--all | --columns COL,COL,...]
+    python main.py csv     <experiments/foo/experiment.py>  [--changed] [--output PATH]
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
+import pandas as pd
 from dotenv import load_dotenv
 
 
@@ -132,6 +134,50 @@ def cmd_list(args: argparse.Namespace) -> None:
     print()
 
 
+def cmd_csv(args: argparse.Namespace) -> None:
+    sweep = _load_sweep(args.experiment)
+    exps = sweep.experiments
+    if not exps:
+        print(f"Sweep '{sweep.name}': (empty)")
+        return
+
+    exp_dir = Path(args.experiment).resolve().parent
+
+    _CSV_EXCLUDE = {"training_args", "wandb_project", "wandb_exp_name", "tensorboard_dir", "save", "load"}
+
+    def _with_size(exp, row: dict) -> dict:
+        if hasattr(exp, "_param_counts"):
+            p = exp._param_counts()
+            row["total_params_B"] = p["total_B"]
+            row["active_params_B"] = p["active_B"]
+            row["activation_ratio"] = p["ratio"]
+        return row
+
+    if args.changed:
+        changed = set(sweep.changed_fields()) - _CSV_EXCLUDE
+        cols = ["name"] + sorted(changed)
+        rows = [_with_size(exp, {c: exp.to_dict().get(c) for c in cols}) for exp in exps]
+        class_name = type(exps[0]).__name__
+        default_path = exp_dir / f"{class_name}.changed.csv"
+    else:
+        rows = []
+        for exp in exps:
+            d = exp.to_dict()
+            for k in _CSV_EXCLUDE:
+                d.pop(k, None)
+            rows.append(_with_size(exp, d))
+        default_path = exp_dir / f"{sweep.name}.csv"
+
+    name_to_idx = {exp.name: i for i, exp in enumerate(exps)}
+    for i, (exp, row) in enumerate(zip(exps, rows)):
+        parent_name = getattr(exp, "_parent_name", None)
+        row["parent_idx"] = name_to_idx[parent_name] if parent_name in name_to_idx else None
+
+    out_path = Path(args.output) if args.output else default_path
+    pd.DataFrame(rows).to_csv(out_path, index=False)
+    print(f"Wrote {len(rows)} rows to {out_path}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="spellbook")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -155,6 +201,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated list of fields to show (always includes changed fields)",
     )
 
+    p_csv = sub.add_parser("csv", help="Export experiments to a CSV file")
+    p_csv.add_argument("experiment", help="Path to experiment .py file")
+    p_csv.add_argument(
+        "--changed", action="store_true",
+        help="Only include columns that differ across experiments; output named <ClassName>.changed.csv",
+    )
+    p_csv.add_argument("--output", default=None, metavar="PATH", help="Override output file path")
+
     return parser
 
 
@@ -162,7 +216,7 @@ def main() -> None:
     # Load .env from the current working tree if present; do not override exported env.
     load_dotenv(override=False)
     args = build_parser().parse_args()
-    {"render": cmd_render, "submit": cmd_submit, "list": cmd_list}[args.command](args)
+    {"render": cmd_render, "submit": cmd_submit, "list": cmd_list, "csv": cmd_csv}[args.command](args)
 
 
 if __name__ == "__main__":

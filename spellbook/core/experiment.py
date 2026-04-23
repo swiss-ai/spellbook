@@ -28,7 +28,9 @@ class Experiment:
 
     def change(self, name: str, **kwargs: Any) -> Experiment:
         """Return a new instance with name and given fields overridden."""
-        return dataclasses.replace(self, name=name, **kwargs)
+        child = dataclasses.replace(self, name=name, **kwargs)
+        object.__setattr__(child, "_parent_name", self.name)
+        return child
 
     def sweep(self, field: str, values: list[Any]) -> list[Experiment]:
         """One-axis sweep: return one variant per value, named <name>-<field><value>."""

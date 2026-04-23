@@ -74,6 +74,7 @@ class MegatronExperiment(Experiment):
     use_flash_attn: bool = False
     attention_dropout: float | None = None
     hidden_dropout: float | None = None
+    mla_down_proj_fusion: bool = False
 
     # --- MoE ---
     num_experts: int | None = None
@@ -295,6 +296,51 @@ class MegatronExperiment(Experiment):
     @property
     def nnodes(self) -> int:
         return self.total_gpus // 4  # assumes 4 GPUs/node; override if needed
+
+    # ------------------------------------------------------------------
+    # Parameter count (Qwen3 MoE architecture, QK LayerNorm assumed when qk_layernorm=True)
+    # ------------------------------------------------------------------
+
+    def _param_counts(self) -> dict[str, float]:
+        h = self.hidden_size
+        kv_h = self.num_query_groups * (h // self.num_attention_heads)
+
+        embedding_params = self.vocab_size * h
+        output_params = self.vocab_size * h if self.untie_embeddings_and_output_weights else 0
+
+        attn_params = h * h + h * kv_h + h * kv_h + h * h  # q+k+v+o
+        qk_ln_params = 2 * h if self.qk_layernorm else 0
+        layernorm_params = 2 * h
+
+        dense_ffn_params = 2 * h * self.ffn_hidden_size + self.ffn_hidden_size * h
+
+        num_experts = self.num_experts or 0
+        moe_ffn = self.moe_ffn_hidden_size or 0
+        shared_intermediate = self.moe_shared_expert_intermediate_size or 0
+
+        router_params = h * num_experts
+        expert_params = 2 * h * moe_ffn + moe_ffn * h
+        shared_expert_params = 2 * h * shared_intermediate + shared_intermediate * h
+
+        total_params = embedding_params + output_params
+        active_params = embedding_params + output_params
+
+        for is_moe in self.moe_layer_freq:
+            base = attn_params + qk_ln_params + layernorm_params
+            if is_moe:
+                layer_total = base + router_params + num_experts * expert_params + shared_expert_params
+                layer_active = base + router_params + self.moe_router_topk * expert_params + shared_expert_params
+            else:
+                layer_total = base + dense_ffn_params
+                layer_active = layer_total
+            total_params += layer_total
+            active_params += layer_active
+
+        return {
+            "total_B": round(total_params / 1e9, 3),
+            "active_B": round(active_params / 1e9, 3),
+            "ratio": round(active_params / total_params, 4) if total_params else 0.0,
+        }
 
     # ------------------------------------------------------------------
     # to_dict: produce the context dict the Jinja2 template receives

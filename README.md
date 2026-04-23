@@ -44,6 +44,26 @@ Options:
 - `list --all`: show all experiment fields.
 - `list --columns a,b,c`: show selected fields.
 
+### `csv` — export experiments to a CSV file
+
+```bash
+# All fields → <experiment_dir>/<sweep_name>.csv
+python main.py csv experiments/big_moe_speed_ablations/experiment.py
+
+# Only differing fields → <experiment_dir>/<ClassName>.changed.csv
+python main.py csv experiments/big_moe_speed_ablations/experiment.py --changed
+
+# Override output path
+python main.py csv experiments/big_moe_speed_ablations/experiment.py --output my.csv
+```
+
+Every row includes computed size columns (`total_params_B`, `active_params_B`, `activation_ratio`)
+and a `parent_idx` column — the 0-based row index of the experiment that `.change()` was called
+on (empty for root/base experiments).
+
+The following fields are always excluded from CSV output: `wandb_project`, `wandb_exp_name`,
+`tensorboard_dir`, `save`, `load`.
+
 ## `.env` support
 
 Spellbook loads `.env` automatically in `main.py` startup using `python-dotenv`.
@@ -178,7 +198,8 @@ Important fields:
 
 `render` and `submit` create:
 - one script per experiment at `sbatch_scripts/<sweep_name>/<experiment_name>.sh`
-- `experiments.csv` in the same folder (with `training_args` omitted)
+
+Use `csv` to export a CSV alongside the experiment definition (see the `csv` section above).
 
 ## Typical workflow
 
