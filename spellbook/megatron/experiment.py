@@ -303,24 +303,48 @@ class MegatronExperiment(Experiment):
 
     def _param_counts(self) -> dict[str, float]:
         h = self.hidden_size
-        kv_h = self.num_query_groups * (h // self.num_attention_heads)
 
         embedding_params = self.vocab_size * h
         output_params = self.vocab_size * h if self.untie_embeddings_and_output_weights else 0
 
-        attn_params = h * h + h * kv_h + h * kv_h + h * h  # q+k+v+o
+        if self.multi_latent_attention:
+            # MLA projections: W_DQ (h->q_lora_rank), W_UQ (q_lora_rank->nheads*qk_head_dim),
+            # W_DKV (h->kv_lora_rank), W_UK (kv_lora_rank->nheads*qk_head_dim),
+            # W_UV (kv_lora_rank->nheads*v_head_dim), W_O (nheads*v_head_dim->h),
+            # plus RoPE query projection W_QR (q_lora_rank->nheads*qk_pos_emb_head_dim)
+            nh = self.num_attention_heads
+            q_lora = self.q_lora_rank or 0
+            kv_lora = self.kv_lora_rank or 0
+            qk_dim = self.qk_head_dim or 0
+            qk_rope = self.qk_pos_emb_head_dim or 0
+            v_dim = self.v_head_dim or 0
+            attn_params = (
+                h * q_lora                    # W_DQ
+                + q_lora * nh * qk_dim        # W_UQ (nope part)
+                + q_lora * nh * qk_rope       # W_QR (rope part)
+                + h * kv_lora                 # W_DKV
+                + kv_lora * nh * qk_dim       # W_UK
+                + kv_lora * nh * v_dim        # W_UV
+                + nh * v_dim * h              # W_O
+            )
+        else:
+            head_dim = self.kv_channels or (h // self.num_attention_heads)
+            kv_h = (self.num_query_groups or self.num_attention_heads) * head_dim
+            attn_params = h * h + h * kv_h + h * kv_h + h * h  # q+k+v+o
+
         qk_ln_params = 2 * h if self.qk_layernorm else 0
         layernorm_params = 2 * h
 
-        dense_ffn_params = 2 * h * self.ffn_hidden_size + self.ffn_hidden_size * h
+        ffn_multiplier = 3 if self.swiglu else 2  # SwiGLU: gate+up+down; standard: up+down
+        dense_ffn_params = ffn_multiplier * h * self.ffn_hidden_size
 
         num_experts = self.num_experts or 0
         moe_ffn = self.moe_ffn_hidden_size or 0
         shared_intermediate = self.moe_shared_expert_intermediate_size or 0
 
         router_params = h * num_experts
-        expert_params = 2 * h * moe_ffn + moe_ffn * h
-        shared_expert_params = 2 * h * shared_intermediate + shared_intermediate * h
+        expert_params = ffn_multiplier * h * moe_ffn
+        shared_expert_params = ffn_multiplier * h * shared_intermediate
 
         total_params = embedding_params + output_params
         active_params = embedding_params + output_params
