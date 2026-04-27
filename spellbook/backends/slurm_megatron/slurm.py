@@ -31,7 +31,9 @@ Running inside an existing allocation (srun mode)::
 
 from __future__ import annotations
 
+import os
 import subprocess
+import tempfile
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -85,6 +87,8 @@ class SlurmBackend:
     nodes: int | None = None                     # if None, derived from experiment.num_gpus // gpus_per_node
     log_dir: str = "slurm_logs"
     reservation: str = ""                  # adds --reservation to sbatch header + sbatch cmd
+    dependency_singleton: bool = True      # adds --dependency=singleton to sbatch header
+    no_save: bool = False                  # render and submit without writing the .sh file to disk
     srun_job_id: str = ""                  # when set, use srun.sh.j2 + run inside allocation
     mem_estimator: bool = False            # when True, use mem_estimator.sh.j2 (1 GPU, fake process group)
     srun_extra_args: str = ""              # extra flags appended verbatim to every srun call
@@ -262,6 +266,7 @@ class SlurmBackend:
             "exp_name": experiment.name,
             "wandb_exp_name": d.get("wandb_exp_name", experiment.name),
             "reservation": self.reservation,
+            "dependency_singleton": self.dependency_singleton,
             "srun_job_id": self.srun_job_id,
             "srun_extra_args": self.srun_extra_args,
             "pythonpath_env_vars": self.pythonpath_env_vars,
@@ -282,22 +287,28 @@ class SlurmBackend:
         Also writes experiments.csv alongside the scripts.
         """
         out = Path(output_dir) / sweep_name
-        out.mkdir(parents=True, exist_ok=True)
+        if not self.no_save:
+            out.mkdir(parents=True, exist_ok=True)
 
         paths = []
         rows = []
         for exp in experiments:
             script = self.render(exp)
             path = out / f"{exp.name}.sh"
-            path.write_text(script)
+            if self.no_save:
+                print(f"# --- {path} (no_save, not written) ---")
+                print(script)
+            else:
+                path.write_text(script)
             paths.append(str(path))
             rows.append(exp.to_dict())
 
-        # Write CSV — drop training_args list (not useful in tabular form)
-        df = pd.DataFrame(rows)
-        if "training_args" in df.columns:
-            df = df.drop(columns=["training_args"])
-        df.to_csv(out / "experiments.csv", index=False)
+        if not self.no_save:
+            # Write CSV — drop training_args list (not useful in tabular form)
+            df = pd.DataFrame(rows)
+            if "training_args" in df.columns:
+                df = df.drop(columns=["training_args"])
+            df.to_csv(out / "experiments.csv", index=False)
 
         return paths
 
@@ -314,11 +325,26 @@ class SlurmBackend:
         """Render all experiments, then submit each via sbatch or srun. Returns job IDs."""
         paths = self.render_all(sweep_name, experiments, output_dir=output_dir)
         job_ids = []
-        for path in paths:
-            if self.srun_job_id:
-                job_id = self._run_srun_script(path)
+        for exp, path in zip(experiments, paths):
+            if self.no_save:
+                script = self.render(exp)
+                with tempfile.NamedTemporaryFile(
+                    mode="w", suffix=".sh", delete=False
+                ) as tmp:
+                    tmp.write(script)
+                    tmp_path = tmp.name
+                try:
+                    if self.srun_job_id:
+                        job_id = self._run_srun_script(tmp_path)
+                    else:
+                        job_id = self._sbatch(tmp_path)
+                finally:
+                    os.unlink(tmp_path)
             else:
-                job_id = self._sbatch(path)
+                if self.srun_job_id:
+                    job_id = self._run_srun_script(path)
+                else:
+                    job_id = self._sbatch(path)
             print(f"  {Path(path).stem}: submitted → job {job_id}")
             job_ids.append(job_id)
         return job_ids

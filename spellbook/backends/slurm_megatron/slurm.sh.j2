@@ -9,7 +9,9 @@
 #SBATCH --error={{ log_dir }}/{{ exp_name }}/{{ wandb_exp_name }}-%j.err
 #SBATCH --exclusive
 #SBATCH --gres=gpu:{{ gpus_per_node }}
+{%- if dependency_singleton %}
 #SBATCH --dependency=singleton
+{%- endif %}
 {%- if reservation %}
 #SBATCH --reservation={{ reservation }}
 {%- endif %}
