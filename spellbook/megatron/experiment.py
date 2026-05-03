@@ -183,6 +183,7 @@ class MegatronExperiment(Experiment):
     tensorboard_dir: str = ""
     wandb_project: str = ""
     wandb_exp_name: str = ""
+    wandb_id: str = ""  # if set, resumes the run via WANDB_RUN_ID + WANDB_RESUME=must
     log_throughput: bool = True
     log_params_norm: bool = True
     log_num_zeros_in_grad: bool = True
@@ -214,6 +215,9 @@ class MegatronExperiment(Experiment):
     cuda_graph_impl: str = ""
     te_rng_tracker: bool = False
 
+
+    # --- torchrun flags ---
+    torchrun_standalone: bool = False  # passes --standalone to torchrun; useful for single-node runs
 
     # --- nsys profiling ---
     # When profile=True the template wraps the python launch with:
@@ -271,6 +275,10 @@ class MegatronExperiment(Experiment):
         self.env_vars = dict(self.env_vars)
         if self.num_gpus is not None:
             self.dp = self.num_gpus // (self.tp * self.pp * self.cp)
+
+        if self.wandb_id:
+            self.env_vars["WANDB_RUN_ID"] = self.wandb_id
+            self.env_vars["WANDB_RESUME"] = "must"
 
         if not self.save:
             warnings.warn(
