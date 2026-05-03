@@ -354,7 +354,11 @@ class SlurmBackend:
         if self.reservation:
             cmd += [f"--reservation={self.reservation}"]
         cmd.append(script_path)
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            raise RuntimeError(
+                f"sbatch failed (exit {result.returncode}):\n{result.stderr.strip()}"
+            )
         return result.stdout.strip().split()[-1]
 
     def _run_srun_script(self, script_path: str) -> str:

@@ -40,6 +40,8 @@ if [[ ! -d "${MEGATRON_WORKTREE_PATH}" ]]; then
   git -C "{{ megatron_path }}" worktree add "${MEGATRON_WORKTREE_PATH}" "{{ megatron_commit }}"
 fi
 export MEGATRON_PATH="${MEGATRON_WORKTREE_PATH}"
+{% else %}
+export MEGATRON_PATH="{{ megatron_path }}"
 {% endif %}
 
 # --- Megatron git metadata (resolved at runtime from final MEGATRON_PATH) ---
@@ -113,11 +115,16 @@ DEBUG_CMD="-m debugpy --listen 0.0.0.0:{{ debug_port }} --wait-for-client"
 DEBUG_CMD=""
 {% endif %}
 ${PROFILE_CMD} python ${DEBUG_CMD} -m torch.distributed.run \
+{%- if torchrun_standalone %}
+  --nproc_per_node "1" \
+  --standalone \
+{%- else %}
   --nproc_per_node "${SLURM_GPUS_ON_NODE}" \
   --nnodes "{{ nodes }}" \
   --node_rank "${SLURM_PROCID}" \
   --master_addr "${MASTER_ADDR}" \
   --master_port "${MASTER_PORT}" \
+{%- endif %}
   ${MEGATRON_PATH}/{{ training_script }} \
   {{ training_args_lines | join(" \\\n  ") }} \
   ${DATA_PATH:+--data-path ${DATA_PATH}}

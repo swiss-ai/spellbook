@@ -29,6 +29,8 @@ if [[ ! -d "${MEGATRON_WORKTREE_PATH}" ]]; then
   git -C "{{ megatron_path }}" worktree add "${MEGATRON_WORKTREE_PATH}" "{{ megatron_commit }}"
 fi
 export MEGATRON_PATH="${MEGATRON_WORKTREE_PATH}"
+{% else %}
+export MEGATRON_PATH="{{ megatron_path }}"
 {% endif %}
 
 # --- Megatron git metadata (resolved at runtime from final MEGATRON_PATH) ---
@@ -110,19 +112,27 @@ NODE_ID="${SLURM_PROCID:-${SLURM_NODEID}}"
 if [[ "${NODE_ID}" == "0" ]]; then
     ${PROFILE_CMD} ${DEBUG_CMD} python -m torch.distributed.run \
       --nproc_per_node "${SLURM_GPUS_ON_NODE:-{{ gpus_per_node }}}" \
+{%- if torchrun_standalone %}
+      --standalone \
+{%- else %}
       --nnodes "{{ nodes }}" \
       --node_rank "${NODE_ID}" \
       --master_addr "${MASTER_ADDR}" \
       --master_port "${MASTER_PORT}" \
+{%- endif %}
       {{ megatron_path }}/{{ training_script }} \
       {{ training_args_lines | join(" \\\n      ") }} 2>&1 | tee "{{ log_dir }}/{{ job_name }}-${SRUN_JOB_ID}-node0.out"
 else
     ${PROFILE_CMD} ${DEBUG_CMD} python -m torch.distributed.run \
       --nproc_per_node "${SLURM_GPUS_ON_NODE:-{{ gpus_per_node }}}" \
+{%- if torchrun_standalone %}
+      --standalone \
+{%- else %}
       --nnodes "{{ nodes }}" \
       --node_rank "${NODE_ID}" \
       --master_addr "${MASTER_ADDR}" \
       --master_port "${MASTER_PORT}" \
+{%- endif %}
       {{ megatron_path }}/{{ training_script }} \
       {{ training_args_lines | join(" \\\n      ") }} > /dev/null 2>&1
 fi
