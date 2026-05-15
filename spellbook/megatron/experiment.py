@@ -64,7 +64,9 @@ class MegatronExperiment(Experiment):
     qk_head_dim: int | None = None
     qk_pos_emb_head_dim: int | None = None
     v_head_dim: int | None = None
-    rotary_scaling_factor: float | None = None
+    rotary_scaling_factor: float | None = None # yarn (to use use MLA or rope_type="yarn")
+    rope_scaling_factor: float | None = None # llama3-style RoPE scaling (by default rope_type used is "rope" so llama 3)
+    rope_type: str | None = None  # "rope" (default, in megatron when using None), "yarn"
     mscale: float | None = None
     mscale_all_dim: float | None = None
     untie_embeddings_and_output_weights: bool = True
