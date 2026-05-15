@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import dataclasses
 import warnings
-from typing import Any
+from typing import Any, ClassVar
 
 from spellbook.core.experiment import Experiment
 from spellbook.megatron import flags as megatron_flags
@@ -30,6 +30,9 @@ from spellbook.megatron import flags as megatron_flags
 
 @dataclasses.dataclass
 class MegatronExperiment(Experiment):
+    # wandb_exp_name contains a timestamp and training_args is derived — both change on every import.
+    _lock_exclude: ClassVar[frozenset[str]] = frozenset({"wandb_exp_name", "training_args"})
+
     # --- Megatron path ---
     megatron_path: str = ""
     megatron_commit: str = ""  # if set, a git worktree is created at this commit and used instead
