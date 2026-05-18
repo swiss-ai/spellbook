@@ -221,6 +221,9 @@ class MegatronExperiment(Experiment):
     te_rng_tracker: bool = False
 
 
+    # --- Extra passthrough args ---
+    extra_args: list[str] = dataclasses.field(default_factory=list)
+
     # --- torchrun flags ---
     torchrun_standalone: bool = False  # passes --standalone to torchrun; useful for single-node runs
 
@@ -385,5 +388,5 @@ class MegatronExperiment(Experiment):
 
     def to_dict(self) -> dict[str, Any]:
         d = dataclasses.asdict(self)
-        d["training_args"] = megatron_flags.to_args(d)
+        d["training_args"] = megatron_flags.to_args(d) + list(self.extra_args)
         return d

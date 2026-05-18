@@ -67,6 +67,7 @@ _SKIP = frozenset({
     # W&B resume — injected as env vars (WANDB_RUN_ID, WANDB_RESUME), not a Megatron flag
     "wandb_id",
     "torchrun_standalone",
+    "extra_args",
 })
 
 
