@@ -91,6 +91,7 @@ class SlurmBackend:
     no_save: bool = False                  # render and submit without writing the .sh file to disk
     srun_job_id: str = ""                  # when set, use srun.sh.j2 + run inside allocation
     mem_estimator: bool = False            # when True, use mem_estimator.sh.j2 (1 GPU, fake process group)
+    auto_requeue: bool = False             # submit next job before srun (sbatch --dependency=singleton $0)
     srun_extra_args: str = ""              # extra flags appended verbatim to every srun call
     env_vars: dict[str, Any] = field(default_factory=dict)  # infrastructure env vars exported by backend
     pythonpath_env_vars: list[str] = field(default_factory=list)  # env var names whose values are prepended to PYTHONPATH
@@ -267,6 +268,7 @@ class SlurmBackend:
             "wandb_exp_name": d.get("wandb_exp_name", experiment.name),
             "reservation": self.reservation,
             "dependency_singleton": self.dependency_singleton,
+            "auto_requeue": self.auto_requeue,
             "srun_job_id": self.srun_job_id,
             "srun_extra_args": self.srun_extra_args,
             "pythonpath_env_vars": self.pythonpath_env_vars,
