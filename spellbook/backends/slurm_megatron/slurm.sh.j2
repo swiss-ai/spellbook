@@ -54,7 +54,7 @@ echo "Megatron url:    ${MEGATRON_GIT_URL}"
 
 # --- Auto-requeue ---
 {% if auto_requeue %}
-echo "[$(date)] Auto-requeueing: $(sbatch{% if reservation %} --reservation={{ reservation }}{% endif %} $0)"
+echo "[$(date)] Auto-requeueing: $(sbatch --dependency=singleton{% if reservation %} --reservation={{ reservation }}{% endif %} $0)"
 {% endif %}
 
 # --- Launch ---
