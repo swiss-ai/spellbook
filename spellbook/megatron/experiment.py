@@ -177,7 +177,7 @@ class MegatronExperiment(Experiment):
     split: str = "100,0,0"
     no_mmap_bin_files: bool = False
     num_workers: int = 4
-    dataloader_type: str = "cyclic"
+    dataloader_type: str = "single"  # "single" (default), "cyclic" or external
     no_create_attention_mask_in_dataloader: bool = False
     reset_attention_mask: bool = False
     reset_position_ids: bool = False
