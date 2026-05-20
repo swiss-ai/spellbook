@@ -56,7 +56,7 @@ class MegatronExperiment(Experiment):
     normalization: str = "RMSNorm"
     norm_epsilon: float = 1e-5
     position_embedding_type: str = "rope"
-    rotary_base: int = 500000
+    rotary_base: int = 10_000
     rotary_percent: float | None = None
     rotary_seq_len_interpolation_factor: float | None = None
     group_query_attention: bool = True
@@ -131,10 +131,10 @@ class MegatronExperiment(Experiment):
     weight_decay: float = 0.1
     clip_grad: float = 1.0
     adam_beta1: float = 0.9
-    adam_beta2: float = 0.95
+    adam_beta2: float = 0.999
     adam_eps: float = 1e-8
     seed: int = 42
-    init_method_std: float = 0.0
+    init_method_std: float = 0.02
     optimizer: str = "adam"
     use_distributed_optimizer: bool = True
     overlap_param_gather: bool = True
