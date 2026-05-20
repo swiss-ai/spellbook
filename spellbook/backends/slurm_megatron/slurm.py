@@ -220,7 +220,7 @@ class SlurmBackend:
                     "resolved to zero dataset shards — DATA_PATH will be empty.",
                     stacklevel=2,
                 )
-            d["data_path"] = " ".join(f"{p}" for p in prefixes) # NOTE: Removed the 1.0 weighting, as this makes every shard have same weight so it can cause epoch creations
+            d["data_path"] = " ".join(prefixes) # NOTE: Removed the 1.0 weighting, as this makes every shard have same weight so it can cause epoch creations
         elif not d.get("data_path"):
             warnings.warn(
                 f"[{experiment.name}] Neither data_path nor base_data_path is set — "
