@@ -1,0 +1,49 @@
+#!/bin/bash
+#SBATCH --job-name=watcher_{{ model_name }}
+#SBATCH --account={{ account }}
+#SBATCH --partition={{ partition }}
+#SBATCH --time=00:10:00
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --output={{ log_dir }}/{{ model_name }}/watcher-%j.out
+#SBATCH --error={{ log_dir }}/{{ model_name }}/watcher-%j.err
+{%- if reservation %}
+#SBATCH --reservation={{ reservation }}
+{%- endif %}
+
+set -euo pipefail
+
+MARKER="{{ checkpoint_dir }}/{{ model_name }}/latest_checkpointed_iteration.txt"
+STATE_FILE="{{ project_dir }}/evals/{{ model_name }}/.submitted_steps"
+THIS_SCRIPT="{{ watcher_script_path }}"
+
+# Always re-schedule on exit so the chain survives transient failures.
+trap 'sbatch --begin=now+{{ interval_minutes }}minute "$THIS_SCRIPT"' EXIT
+
+echo "[$(date -Is)] Watcher started"
+
+if [[ ! -f "$MARKER" ]]; then
+    echo "[$(date -Is)] No marker at $MARKER — nothing to do."
+    exit 0
+fi
+
+STEP=$(< "$MARKER" tr -d '[:space:]')
+if ! [[ "$STEP" =~ ^[0-9]+$ ]]; then
+    echo "[$(date -Is)] Marker contains non-numeric value '${STEP}' — skipping."
+    exit 0
+fi
+
+mkdir -p "$(dirname "$STATE_FILE")"
+touch "$STATE_FILE"
+
+if grep -qxF "$STEP" "$STATE_FILE"; then
+    echo "[$(date -Is)] Step ${STEP} already submitted — nothing to do."
+    exit 0
+fi
+
+echo "[$(date -Is)] New checkpoint: step ${STEP}. Submitting eval..."
+cd "{{ project_dir }}"
+uv run python -m evals.watcher --config "{{ config_path }}" --step "$STEP"
+echo "$STEP" >> "$STATE_FILE"
+echo "[$(date -Is)] Eval submitted for step ${STEP}."

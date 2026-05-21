@@ -1,0 +1,94 @@
+# Evals
+
+Megatron-LM evaluation runner using [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness).
+
+## Files
+
+| File | Purpose |
+|------|---------|
+| `megatron_eval.py` | Core dataclass (`MegatronEvalConfig`) and submission functions |
+| `megatron_eval.sh.j2` | Jinja2 template for the eval sbatch script |
+| `watcher.py` | One-shot checkpoint checker + `start` command for the self-scheduling watcher |
+| `watcher.sh.j2` | Jinja2 template for the self-scheduling watcher sbatch script |
+| `configs/` | Per-model eval configs |
+
+## Quick start
+
+### Submit a single checkpoint
+
+```python
+from evals.megatron_eval import MegatronEvalConfig, submit
+
+cfg = MegatronEvalConfig(
+    model_name="MY_MODEL",
+    checkpoint_dir="/path/to/checkpoints",
+    tokenizer_model="swiss-ai/Apertus-70B-2509",
+    megatron_path="/path/to/Megatron-LM",
+    tasks=["hellaswag", "winogrande", "arc_easy", "arc_challenge"],
+    account="a139",
+    partition="normal",
+    nodes=4,
+    gpus_per_node=4,
+)
+
+submit(cfg, ckpt_step=3000)
+```
+
+### Submit a range of checkpoints
+
+```python
+from evals.megatron_eval import RangeMode, submit_range
+
+submit_range(cfg, start=500, end=3500, step=500, mode=RangeMode.PARALLEL)
+```
+
+`PARALLEL` submits all jobs at once. `SEQUENTIAL` adds `--dependency=singleton` so they queue one after another.
+
+## Self-scheduling watcher
+
+The watcher is a self-scheduling sbatch job that polls for new checkpoints and submits an eval whenever it finds one not yet submitted. It re-queues itself with `--begin=now+Nhour` so the chain runs indefinitely.
+
+### Start
+
+```bash
+uv run python -m evals.watcher start \
+    --config evals/configs/my_model.py \
+    --interval 1
+```
+
+This renders `evals/<model_name>/watcher.sh` and submits the first job. Submitted step numbers are recorded in `evals/state_files/<model_name>/.submitted_steps` so re-runs are idempotent.
+
+### Stop
+
+```bash
+scancel <job_id>   # printed when you run start
+```
+
+Once the running job is cancelled, no future job is scheduled and the chain ends.
+
+### How it works
+
+```
+watcher job runs
+  └─ reads latest_checkpointed_iteration.txt
+  └─ if step not in .submitted_steps → sbatch eval job, record step
+  └─ trap EXIT → sbatch --begin=now+Nhour watcher.sh  (always re-schedules)
+```
+
+The `trap EXIT` ensures re-scheduling happens even if the eval submission fails.
+
+## Adding a new model
+
+1. Copy an existing config and edit it:
+
+```bash
+cp evals/configs/small_100b_cross_doc.py evals/configs/my_model.py
+```
+
+2. Update the `cfg` variable in the new file.
+
+3. Start the watcher:
+
+```bash
+uv run python -m evals.watcher start --config evals/configs/my_model.py
+```
