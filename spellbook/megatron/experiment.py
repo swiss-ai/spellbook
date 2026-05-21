@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import dataclasses
 import warnings
-from typing import Any
+from typing import Any, ClassVar
 
 from spellbook.core.experiment import Experiment
 from spellbook.megatron import flags as megatron_flags
@@ -30,6 +30,9 @@ from spellbook.megatron import flags as megatron_flags
 
 @dataclasses.dataclass
 class MegatronExperiment(Experiment):
+    # wandb_exp_name contains a timestamp and training_args is derived — both change on every import.
+    _lock_exclude: ClassVar[frozenset[str]] = frozenset({"wandb_exp_name", "training_args"})
+
     # --- Megatron path ---
     megatron_path: str = ""
     megatron_commit: str = ""  # if set, a git worktree is created at this commit and used instead
@@ -53,7 +56,7 @@ class MegatronExperiment(Experiment):
     normalization: str = "RMSNorm"
     norm_epsilon: float = 1e-5
     position_embedding_type: str = "rope"
-    rotary_base: int = 500000
+    rotary_base: int = 10_000
     rotary_percent: float | None = None
     rotary_seq_len_interpolation_factor: float | None = None
     group_query_attention: bool = True
@@ -64,7 +67,9 @@ class MegatronExperiment(Experiment):
     qk_head_dim: int | None = None
     qk_pos_emb_head_dim: int | None = None
     v_head_dim: int | None = None
-    rotary_scaling_factor: float | None = None
+    rotary_scaling_factor: float | None = None # yarn (to use use MLA or rope_type="yarn")
+    rope_scaling_factor: float | None = None # llama3-style RoPE scaling (by default rope_type used is "rope" so llama 3)
+    rope_type: str | None = None  # "rope" (default, in megatron when using None), "yarn"
     mscale: float | None = None
     mscale_all_dim: float | None = None
     untie_embeddings_and_output_weights: bool = True
@@ -126,10 +131,10 @@ class MegatronExperiment(Experiment):
     weight_decay: float = 0.1
     clip_grad: float = 1.0
     adam_beta1: float = 0.9
-    adam_beta2: float = 0.95
+    adam_beta2: float = 0.999
     adam_eps: float = 1e-8
     seed: int = 42
-    init_method_std: float = 0.0
+    init_method_std: float = 0.02
     optimizer: str = "adam"
     use_distributed_optimizer: bool = True
     overlap_param_gather: bool = True
@@ -172,7 +177,7 @@ class MegatronExperiment(Experiment):
     split: str = "100,0,0"
     no_mmap_bin_files: bool = False
     num_workers: int = 4
-    dataloader_type: str = "cyclic"
+    dataloader_type: str = "single"  # "single" (default), "cyclic" or external
     no_create_attention_mask_in_dataloader: bool = False
     reset_attention_mask: bool = False
     reset_position_ids: bool = False
@@ -183,6 +188,7 @@ class MegatronExperiment(Experiment):
     tensorboard_dir: str = ""
     wandb_project: str = ""
     wandb_exp_name: str = ""
+    wandb_id: str = ""  # if set, resumes the run via WANDB_RUN_ID + WANDB_RESUME=must
     log_throughput: bool = True
     log_params_norm: bool = True
     log_num_zeros_in_grad: bool = True
@@ -214,6 +220,12 @@ class MegatronExperiment(Experiment):
     cuda_graph_impl: str = ""
     te_rng_tracker: bool = False
 
+
+    # --- Extra passthrough args ---
+    extra_args: list[str] = dataclasses.field(default_factory=list)
+
+    # --- torchrun flags ---
+    torchrun_standalone: bool = False  # passes --standalone to torchrun; useful for single-node runs
 
     # --- nsys profiling ---
     # When profile=True the template wraps the python launch with:
@@ -271,6 +283,10 @@ class MegatronExperiment(Experiment):
         self.env_vars = dict(self.env_vars)
         if self.num_gpus is not None:
             self.dp = self.num_gpus // (self.tp * self.pp * self.cp)
+
+        if self.wandb_id:
+            self.env_vars["WANDB_RUN_ID"] = self.wandb_id
+            self.env_vars["WANDB_RESUME"] = "must"
 
         if not self.save:
             warnings.warn(
@@ -372,5 +388,5 @@ class MegatronExperiment(Experiment):
 
     def to_dict(self) -> dict[str, Any]:
         d = dataclasses.asdict(self)
-        d["training_args"] = megatron_flags.to_args(d)
+        d["training_args"] = megatron_flags.to_args(d) + list(self.extra_args)
         return d

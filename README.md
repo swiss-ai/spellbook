@@ -194,6 +194,27 @@ Important fields:
 
 `srun_extra_args` is not the same as `extra`.
 
+## Locking experiments
+
+Once you are happy with a config, call `.lock()` to freeze it:
+
+```python
+MY_EXP = BASE.change("MY_EXP", tp=4, lr=3e-4).lock()
+```
+
+**First call** (no lock file yet): writes `locks/MY_EXP.lock.yaml` with the full config and a timestamp.
+
+**Subsequent calls** (lock file exists): validates the current config against the file and raises an error if anything differs:
+
+```
+RuntimeError: Experiment 'MY_EXP' differs from its lock file (locks/MY_EXP.lock.yaml):
+  lr: locked=0.0003  current=0.001
+```
+
+**To change a locked experiment**: delete `locks/MY_EXP.lock.yaml`, update the config, and run the experiment file again — a fresh lock is written automatically.
+
+Lock files live at `locks/<name>.lock.yaml` (same level as `sbatch_scripts/`). Commit them to git so drift is caught in code review.
+
 ## Output artifacts
 
 `render` and `submit` create:

@@ -13,6 +13,9 @@ wheels/
 .env
 sbatch_scripts/
 runs/
+wandb/
+eval_results/
+locks/
 
 # logs
 slurm_logs/
