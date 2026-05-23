@@ -126,6 +126,15 @@ NUM_GPUS={{ devices }}
 
 mkdir -p "${OUTPUT_DIR}"
 
+# Only the first node logs to wandb; otherwise every node task initializes the
+# same run id concurrently, which collides and hangs at wandb sync.
+WANDB_ARGS=""
+{%- if wandb_project %}
+if [[ "${SLURM_PROCID}" == "0" ]]; then
+  WANDB_ARGS="--wandb_args project={{ wandb_project }},id={{ wandb_id if wandb_id else model_name }},step=${CKPT_STEP},resume=allow"
+fi
+{%- endif %}
+
 torchrun \
   --nproc-per-node=$NPROC_PER_NODE \
   --nnodes=$NNODES \
@@ -136,6 +145,6 @@ torchrun \
     --model_args "load={{ checkpoint_dir }}/${MODEL_NAME},tokenizer_type=HuggingFaceTokenizer,tokenizer_model={{ tokenizer_model }},ckpt_step=${CKPT_STEP},transformer_impl=transformer_engine,devices=$NUM_GPUS,EP={{ ep }}{% if extra_args %},extra_args={{ extra_args }}{% endif %}" \
     --tasks {{ tasks_str }} \
     --batch_size {{ batch_size }} \
-    --output_path ${OUTPUT_DIR}{% if wandb_project %} \
-    --wandb_args project={{ wandb_project }},id={{ wandb_id if wandb_id else model_name }},step=${CKPT_STEP},resume=allow{% endif %}
+    --output_path ${OUTPUT_DIR} \
+    ${WANDB_ARGS}
 '
