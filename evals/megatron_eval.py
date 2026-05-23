@@ -79,6 +79,10 @@ class MegatronEvalConfig:
     # Rank 0 will prefetch all listed datasets before the eval loop.
     dataset_prefetch: dict[str, list[str]] = dataclasses.field(default_factory=dict)
 
+    # --- Extra env vars ---
+    # Exported inside the srun shell, after the hardcoded defaults.
+    env_vars: dict[str, str] = dataclasses.field(default_factory=dict)
+
 
 def _render(cfg: MegatronEvalConfig, ckpt_step: int, dependency_singleton: bool) -> str:
     env = Environment(

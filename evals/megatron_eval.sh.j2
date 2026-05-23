@@ -93,6 +93,12 @@ export TRITON_HOME=/tmp/.triton/${SLURM_PROCID}
 export TRITON_CACHE_DIR=/tmp/.triton/${SLURM_PROCID}/cache
 export TORCHINDUCTOR_CACHE_DIR=/tmp/.torchinductor/${SLURM_PROCID}
 
+{% if env_vars %}
+{% for key, val in env_vars.items() %}
+export {{ key }}="{{ val }}"
+{% endfor %}
+{% endif %}
+
 {% if lm_eval_install %}
 pip install {{ lm_eval_install }} --no-build-isolation
 {% endif %}
