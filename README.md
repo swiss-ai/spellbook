@@ -189,7 +189,7 @@ sweep = sweep_grid(
 
 Important fields:
 - `extra`: generic Jinja template context (for example `container_edf`, `container_mounts`).
-- `srun_extra_args`: extra raw flags inserted into every `srun` command.
+- `srun_extra_args`: extra raw flags inserted into every `srun` command. If this includes `--network=VALUE`, Spellbook also exports `SLURM_NETWORK=VALUE` before `srun` so the step inherits the same network setting.
 - `reservation`: added to sbatch header and sbatch invocation.
 
 `srun_extra_args` is not the same as `extra`.

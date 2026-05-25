@@ -253,6 +253,15 @@ class SlurmBackend:
         srun_export_vars = ",".join(
             dict.fromkeys(_SRUN_INFRA_EXPORTS + list(env_vars.keys()))
         )
+        srun_extra_arg_env_vars = {}
+        srun_extra_tokens = self.srun_extra_args.split()
+        for idx, token in enumerate(srun_extra_tokens):
+            if token.startswith("--network="):
+                srun_extra_arg_env_vars["SLURM_NETWORK"] = token.split("=", 1)[1]
+                break
+            if token == "--network" and idx + 1 < len(srun_extra_tokens):
+                srun_extra_arg_env_vars["SLURM_NETWORK"] = srun_extra_tokens[idx + 1]
+                break
 
         ctx = {
             **d,
@@ -271,6 +280,7 @@ class SlurmBackend:
             "auto_requeue": self.auto_requeue,
             "srun_job_id": self.srun_job_id,
             "srun_extra_args": self.srun_extra_args,
+            "srun_extra_arg_env_vars": srun_extra_arg_env_vars,
             "pythonpath_env_vars": self.pythonpath_env_vars,
             "pythonpath": ":".join(pythonpath_parts),
             "srun_export_vars": srun_export_vars,

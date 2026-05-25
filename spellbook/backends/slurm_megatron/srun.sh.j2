@@ -20,6 +20,10 @@ export WORLD_SIZE="{{ nodes }}"
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export CUDA_CACHE_DISABLE=1
 
+{% for key, value in srun_extra_arg_env_vars.items() %}
+export {{ key }}="{{ value }}"
+{%- endfor %}
+
 # --- Megatron worktree pin ---
 {% if megatron_commit %}
 MEGATRON_WORKTREE_PATH="${SCRATCH}/tmp/megatron_worktree_{{ megatron_commit }}"
