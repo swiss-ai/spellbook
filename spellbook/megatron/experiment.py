@@ -218,6 +218,7 @@ class MegatronExperiment(Experiment):
     cross_entropy_fusion_impl: str = ""
     enable_experimental: bool = False
     cuda_graph_impl: str = ""
+    cuda_graph_scope: list[str] = dataclasses.field(default_factory=list)
     te_rng_tracker: bool = False
 
 
