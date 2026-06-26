@@ -188,11 +188,13 @@ sweep = sweep_grid(
 
 `SlurmBackend` modes:
 - default: render `slurm.sh.j2` and submit with `sbatch`.
+- `launch_mode="tasks"`: render `slurm_tasks.sh.j2`, request `ntasks-per-node=gpus_per_node`, and run the training script directly once per Slurm task instead of using `torchrun`.
 - `srun_job_id` set: render `srun.sh.j2` and execute script with `bash` in an existing allocation.
 - `mem_estimator=True`: render `mem_estimator.sh.j2`.
 
 Important fields:
 - `extra`: generic Jinja template context (for example `container_edf`, `container_mounts`).
+- In `launch_mode="tasks"`, `extra` may also include `cpus_per_task`, `mem`, `no_requeue`, or raw `sbatch_extra_lines`.
 - `srun_extra_args`: extra raw flags inserted into every `srun` command. If this includes `--network=VALUE`, Spellbook also exports `SLURM_NETWORK=VALUE` before `srun` so the step inherits the same network setting.
 - `reservation`: added to sbatch header and sbatch invocation.
 - `MegatronExperiment.pre_launch_commands`: raw shell commands inserted into `slurm.sh.j2` before the main training `srun`. Use this for setup that needs to run once per job, including a separate one-task setup `srun`.

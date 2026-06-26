@@ -1,0 +1,159 @@
+#!/bin/bash
+# Launch one Python process per Slurm task. This mode does not use torchrun.
+# It expects ntasks-per-node to match gpus_per_node so each task maps to one GPU.
+#SBATCH --nodes={{ nodes }}
+#SBATCH --account={{ account }}
+#SBATCH --partition={{ partition }}
+#SBATCH --ntasks-per-node={{ gpus_per_node }}
+#SBATCH --gpus-per-node={{ gpus_per_node }}
+{%- if cpus_per_task is defined and cpus_per_task %}
+#SBATCH --cpus-per-task={{ cpus_per_task }}
+{%- endif %}
+{%- if mem is defined and mem %}
+#SBATCH --mem={{ mem }}
+{%- endif %}
+#SBATCH --time={{ run_time }}
+#SBATCH --job-name={{ job_name }}
+#SBATCH --output={{ log_dir }}/{{ exp_name }}/{{ wandb_exp_name }}-%j.out
+#SBATCH --error={{ log_dir }}/{{ exp_name }}/{{ wandb_exp_name }}-%j.err
+#SBATCH --exclusive
+{%- if dependency_singleton %}
+#SBATCH --dependency=singleton
+{%- endif %}
+{%- if reservation %}
+#SBATCH --reservation={{ reservation }}
+{%- endif %}
+{%- if no_requeue is defined and no_requeue %}
+#SBATCH --no-requeue
+{%- endif %}
+{%- if sbatch_extra_lines is defined and sbatch_extra_lines %}
+{{ sbatch_extra_lines }}
+{%- endif %}
+
+set -x
+ulimit -c 0
+
+# --- Distributed setup ---
+export GPUS_PER_NODE="{{ gpus_per_node }}"
+export HOSTNAMES="$(scontrol show hostnames "$SLURM_JOB_NODELIST")"
+export MASTER_ADDR="$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)"
+export MASTER_PORT="${MASTER_PORT:-6800}"
+export WORLD_SIZE="${SLURM_NTASKS:-{{ total_tasks }}}"
+export SLURM_JOB_ID="${SLURM_JOB_ID}"
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+export CUDA_CACHE_DISABLE=1
+
+{% for key, value in srun_extra_arg_env_vars.items() %}
+export {{ key }}="{{ value }}"
+{%- endfor %}
+
+# --- Megatron worktree pin ---
+{% if megatron_commit %}
+MEGATRON_WORKTREE_PATH="${SCRATCH}/tmp/megatron_worktree_{{ megatron_commit }}"
+if [[ ! -d "${MEGATRON_WORKTREE_PATH}" ]]; then
+  echo "Creating Megatron-LM worktree at commit {{ megatron_commit }}"
+  mkdir -p "$(dirname "${MEGATRON_WORKTREE_PATH}")"
+  git -C "{{ megatron_path }}" worktree add "${MEGATRON_WORKTREE_PATH}" "{{ megatron_commit }}"
+fi
+export MEGATRON_PATH="${MEGATRON_WORKTREE_PATH}"
+{% else %}
+export MEGATRON_PATH="{{ megatron_path }}"
+{% endif %}
+
+# --- Megatron git metadata (resolved at runtime from final MEGATRON_PATH) ---
+export MEGATRON_GIT_BRANCH="$(git -C "${MEGATRON_PATH}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+export MEGATRON_GIT_COMMIT="$(git -C "${MEGATRON_PATH}" rev-parse HEAD 2>/dev/null || echo unknown)"
+export MEGATRON_GIT_URL="$(git -C "${MEGATRON_PATH}" remote get-url origin 2>/dev/null || echo unknown)"
+echo "Megatron branch: ${MEGATRON_GIT_BRANCH}"
+echo "Megatron commit: ${MEGATRON_GIT_COMMIT}"
+echo "Megatron url:    ${MEGATRON_GIT_URL}"
+
+# --- Auto-requeue ---
+{% if auto_requeue %}
+echo "[$(date)] Auto-requeueing: $(sbatch --dependency=singleton{% if reservation %} --reservation={{ reservation }}{% endif %} $0)"
+{% endif %}
+
+{% if pre_launch_commands is defined and pre_launch_commands %}
+# --- Pre-launch setup ---
+{{ pre_launch_commands }}
+{% endif %}
+
+# --- Launch ---
+srun \
+  --ntasks={{ total_tasks }} \
+  --ntasks-per-node={{ gpus_per_node }} \
+  --export={{ srun_export_vars }} \
+  --mpi=pmix -l \
+{%- if container_edf is defined and container_edf %}
+  --environment="{{ container_edf }}" \
+{%- endif %}
+{%- if container_mounts is defined and container_mounts %}
+  --container-mounts="{{ container_mounts }}" \
+{%- endif %}
+{%- if container_workdir is defined and container_workdir %}
+  --container-workdir="{{ container_workdir }}" \
+{%- endif %}
+  {{ srun_extra_args }} \
+  -u bash -lc '
+set -x
+ulimit -c 0
+
+export RANK="${SLURM_PROCID}"
+export LOCAL_RANK="${SLURM_LOCALID}"
+export WORLD_SIZE="${SLURM_NTASKS:-{{ total_tasks }}}"
+export MASTER_ADDR="${MASTER_ADDR}"
+export MASTER_PORT="${MASTER_PORT}"
+
+# Re-export inside srun in case the container does not preserve sbatch exports
+export MEGATRON_PATH="${MEGATRON_PATH:-{{ megatron_path }}}"
+export PYTHONPATH="{% for var in pythonpath_env_vars %}{{ '${' ~ var ~ '}' }}:{% endfor %}${PYTHONPATH:-}"
+{% for key, value in env_vars.items() %}
+{%- if key != "MEGATRON_PATH" %}
+export {{ key }}="{{ value }}"
+{%- endif %}
+{%- endfor %}
+
+# Per-process Triton / inductor caches on local storage
+export TRITON_HOME=/tmp/.triton/${SLURM_PROCID}
+export TRITON_CACHE_DIR=${TRITON_HOME}/cache
+export TORCHINDUCTOR_CACHE_DIR=/tmp/.torch_inductor/${SLURM_PROCID}
+mkdir -p ${TRITON_CACHE_DIR} ${TORCHINDUCTOR_CACHE_DIR}
+
+{% if install_commands is defined and install_commands %}
+# --- Install packages ---
+{{ install_commands }}
+{% endif %}
+
+# --- Data path ---
+{% if data_path %}
+DATA_PATH="{{ data_path }}"
+{% else %}
+DATA_PATH=""
+{% endif %}
+{% if profile %}
+export NVTE_NVTX_ENABLED=1
+mkdir -p {{ nsys_output }}
+PROFILE_CMD="nsys profile \
+  --sample=none --cpuctxsw=none \
+  -t {{ profile_types }} \
+  --capture-range=cudaProfilerApi \
+  --capture-range-end=stop \
+  --cuda-graph-trace=node \
+  --pytorch={{ pytorch_nsys_profile }} \
+  --python-sampling={{ "true" if python_sampling else "false" }} \
+  --nic-metrics={{ nic_metrics }} \
+  --stats=false \
+  -f true -x true \
+  -o {{ nsys_output }}/{{ job_name }}-${SLURM_PROCID}"
+{% else %}
+PROFILE_CMD=""
+{% endif %}
+{% if debug %}
+DEBUG_CMD="-m debugpy --listen 0.0.0.0:$(({{ debug_port }} + SLURM_PROCID)) --wait-for-client"
+{% else %}
+DEBUG_CMD=""
+{% endif %}
+${PROFILE_CMD} python ${DEBUG_CMD} ${MEGATRON_PATH}/{{ training_script }} \
+  {{ training_args_lines | join(" \\\n  ") }} \
+  ${DATA_PATH:+--data-path ${DATA_PATH}}
+'

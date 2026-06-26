@@ -27,6 +27,11 @@ Running inside an existing allocation (srun mode)::
     backend = SlurmBackend(..., srun_job_id="12345678")
     # Uses srun.sh.j2 template; rendered script is a plain bash script to run
     # inside the allocation with: bash <script>.sh
+
+Launching one Python process per Slurm task instead of torchrun::
+
+    backend = SlurmBackend(..., launch_mode="tasks")
+    # Uses slurm_tasks.sh.j2 with ntasks-per-node=gpus_per_node.
 """
 
 from __future__ import annotations
@@ -91,6 +96,7 @@ class SlurmBackend:
     no_save: bool = False                  # render and submit without writing the .sh file to disk
     srun_job_id: str = ""                  # when set, use srun.sh.j2 + run inside allocation
     mem_estimator: bool = False            # when True, use mem_estimator.sh.j2 (1 GPU, fake process group)
+    launch_mode: str = "torchrun"          # "torchrun" or "tasks"; tasks runs python directly per Slurm task
     auto_requeue: bool = False             # submit next job before srun (sbatch --dependency=singleton $0)
     srun_extra_args: str = ""              # extra flags appended verbatim to every srun call
     env_vars: dict[str, Any] = field(default_factory=dict)  # infrastructure env vars exported by backend
@@ -194,10 +200,17 @@ class SlurmBackend:
     # ------------------------------------------------------------------
 
     def _template_name(self) -> str:
+        if self.launch_mode not in {"torchrun", "tasks"}:
+            raise ValueError(
+                f"Unsupported SlurmBackend.launch_mode={self.launch_mode!r}; "
+                "expected 'torchrun' or 'tasks'."
+            )
         if self.mem_estimator:
             return "mem_estimator.sh.j2"
         if self.srun_job_id:
             return "srun.sh.j2"
+        if self.launch_mode == "tasks":
+            return "slurm_tasks.sh.j2"
         return "slurm.sh.j2"
 
     def render(self, experiment: Experiment) -> str:
@@ -270,6 +283,7 @@ class SlurmBackend:
             "partition": self.partition,
             "nodes": nodes,
             "gpus_per_node": self.gpus_per_node,
+            "total_tasks": nodes * self.gpus_per_node,
             "run_time": self.run_time,
             "log_dir": self.log_dir,
             "job_name": experiment.name,
