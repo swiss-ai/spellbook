@@ -47,6 +47,8 @@ _SKIP = frozenset({
     "megatron_path",
     "megatron_commit",
     "training_script",
+    "pre_launch_commands",
+    "install_commands",
     # Spellbook-level parallelism helpers (num_gpus drives dp, not a Megatron flag)
     "num_gpus",
     "dp",

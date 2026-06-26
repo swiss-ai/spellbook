@@ -37,6 +37,8 @@ class MegatronExperiment(Experiment):
     megatron_path: str = ""
     megatron_commit: str = ""  # if set, a git worktree is created at this commit and used instead
     training_script: str = "pretrain_gpt.py"
+    pre_launch_commands: str = ""  # raw shell commands rendered before the main srun launch
+    install_commands: str = ""  # raw shell commands rendered before training, e.g. pip install ...
 
     # --- Environment variables injected into the sbatch script ---
     env_vars: dict[str, Any] = dataclasses.field(default_factory=dict)

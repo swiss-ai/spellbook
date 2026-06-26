@@ -137,6 +137,10 @@ BASE = MegatronExperiment(
     lr=3e-4,
     min_lr=3e-5,
     wandb_project="spellbook-demo",
+    install_commands="""
+pip install --upgrade --no-deps "nvidia-cutlass-dsl==4.4.2"
+pip install --upgrade --no-deps "quack-kernels[cu13]==0.4.1"
+""".strip(),
 )
 
 backend = SlurmBackend(
@@ -191,6 +195,8 @@ Important fields:
 - `extra`: generic Jinja template context (for example `container_edf`, `container_mounts`).
 - `srun_extra_args`: extra raw flags inserted into every `srun` command. If this includes `--network=VALUE`, Spellbook also exports `SLURM_NETWORK=VALUE` before `srun` so the step inherits the same network setting.
 - `reservation`: added to sbatch header and sbatch invocation.
+- `MegatronExperiment.pre_launch_commands`: raw shell commands inserted into `slurm.sh.j2` before the main training `srun`. Use this for setup that needs to run once per job, including a separate one-task setup `srun`.
+- `MegatronExperiment.install_commands`: raw shell commands inserted inside `slurm.sh.j2` before data path setup and training launch. Use this for per-experiment package installation.
 
 `srun_extra_args` is not the same as `extra`.
 

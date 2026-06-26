@@ -61,6 +61,11 @@ echo "Megatron url:    ${MEGATRON_GIT_URL}"
 echo "[$(date)] Auto-requeueing: $(sbatch --dependency=singleton{% if reservation %} --reservation={{ reservation }}{% endif %} $0)"
 {% endif %}
 
+{% if pre_launch_commands is defined and pre_launch_commands %}
+# --- Pre-launch setup ---
+{{ pre_launch_commands }}
+{% endif %}
+
 # --- Launch ---
 srun \
   --export={{ srun_export_vars }} \
@@ -93,6 +98,11 @@ export TRITON_HOME=/tmp/.triton/${SLURM_PROCID}
 export TRITON_CACHE_DIR=${TRITON_HOME}/cache
 export TORCHINDUCTOR_CACHE_DIR=/tmp/.torch_inductor/${SLURM_PROCID}
 mkdir -p ${TRITON_CACHE_DIR} ${TORCHINDUCTOR_CACHE_DIR}
+
+{% if install_commands is defined and install_commands %}
+# --- Install packages ---
+{{ install_commands }}
+{% endif %}
 
 # --- Data path ---
 {% if data_path %}
