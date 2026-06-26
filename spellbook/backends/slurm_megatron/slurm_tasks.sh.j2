@@ -14,8 +14,16 @@
 {%- endif %}
 #SBATCH --time={{ run_time }}
 #SBATCH --job-name={{ job_name }}
+{%- if slurm_output is defined and slurm_output %}
+#SBATCH --output={{ slurm_output }}
+{%- else %}
 #SBATCH --output={{ log_dir }}/{{ exp_name }}/{{ wandb_exp_name }}-%j.out
+{%- endif %}
+{%- if slurm_error is defined and slurm_error %}
+#SBATCH --error={{ slurm_error }}
+{%- else %}
 #SBATCH --error={{ log_dir }}/{{ exp_name }}/{{ wandb_exp_name }}-%j.err
+{%- endif %}
 #SBATCH --exclusive
 {%- if dependency_singleton %}
 #SBATCH --dependency=singleton
@@ -67,6 +75,13 @@ export MEGATRON_GIT_URL="$(git -C "${MEGATRON_PATH}" remote get-url origin 2>/de
 echo "Megatron branch: ${MEGATRON_GIT_BRANCH}"
 echo "Megatron commit: ${MEGATRON_GIT_COMMIT}"
 echo "Megatron url:    ${MEGATRON_GIT_URL}"
+
+# --- Environment for pre-launch hooks ---
+{% for key, value in env_vars.items() %}
+{%- if key != "MEGATRON_PATH" %}
+export {{ key }}="{{ value }}"
+{%- endif %}
+{%- endfor %}
 
 # --- Auto-requeue ---
 {% if auto_requeue %}

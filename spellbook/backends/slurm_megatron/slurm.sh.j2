@@ -56,6 +56,13 @@ echo "Megatron branch: ${MEGATRON_GIT_BRANCH}"
 echo "Megatron commit: ${MEGATRON_GIT_COMMIT}"
 echo "Megatron url:    ${MEGATRON_GIT_URL}"
 
+# --- Environment for pre-launch hooks ---
+{% for key, value in env_vars.items() %}
+{%- if key != "MEGATRON_PATH" %}
+export {{ key }}="{{ value }}"
+{%- endif %}
+{%- endfor %}
+
 # --- Auto-requeue ---
 {% if auto_requeue %}
 echo "[$(date)] Auto-requeueing: $(sbatch --dependency=singleton{% if reservation %} --reservation={{ reservation }}{% endif %} $0)"
