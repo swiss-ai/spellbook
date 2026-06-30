@@ -72,6 +72,7 @@ class MegatronEvalConfig:
 
     # --- lm-eval install ---
     lm_eval_install: str = ""        # pip install URL/path; skipped if empty
+    install_commands: str = ""       # raw shell commands run before evaluation; skipped if empty
 
     # --- Dataset prefetch ---
     # Mapping from lm-eval task name to load_dataset() call args, e.g.:

@@ -4,7 +4,7 @@
 #SBATCH --partition={{ partition }}
 #SBATCH --ntasks-per-node=1
 #SBATCH --time={{ run_time }}
-#SBATCH --job-name=eval_{{ model_name }}_{{ ckpt_step }}
+#SBATCH --job-name=eval_{{ model_name }}
 #SBATCH --output={{ log_dir }}/{{ model_name }}/{{ model_name }}-{{ ckpt_step }}-{{ date }}-%j.out
 #SBATCH --error={{ log_dir }}/{{ model_name }}/{{ model_name }}-{{ ckpt_step }}-{{ date }}-%j.err
 #SBATCH --exclusive
@@ -135,7 +135,15 @@ if [[ "${SLURM_PROCID}" == "0" ]]; then
 fi
 {%- endif %}
 
-torchrun \
+{% if install_commands %}
+# --- Install packages ---
+{{ install_commands }}
+{% endif %}
+
+# Turn off hf hub so we dont have all ranks doing requests to the HF api and making us get rate limited
+export HF_HUB_OFFLINE=1
+
+python -m torch.distributed.run \
   --nproc-per-node=$NPROC_PER_NODE \
   --nnodes=$NNODES \
   --node-rank=$NODE_RANK \

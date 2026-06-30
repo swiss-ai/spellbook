@@ -29,10 +29,18 @@ cfg = MegatronEvalConfig(
     partition="normal",
     nodes=4,
     gpus_per_node=4,
+    install_commands="""
+pip install --upgrade --no-deps "nvidia-cutlass-dsl==4.4.2"
+pip install --upgrade --no-deps "quack-kernels[cu13]==0.4.1"
+pip install --no-deps "git+https://github.com/andresnowak/sonic-moe.git@7d931fe0f635f9ccfb2d292e09fdd6e72425dab6"
+""".strip(),
 )
 
 submit(cfg, ckpt_step=3000)
 ```
+
+`MegatronEvalConfig.install_commands` is inserted as raw shell inside the eval
+`srun` shell before `lm_eval` starts. Use it for per-eval package installs.
 
 ### Submit a range of checkpoints
 
