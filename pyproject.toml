@@ -17,3 +17,4 @@ include = ["spellbook*", "evals*"]
 
 [tool.setuptools.package-data]
 evals = ["*.j2", "README.md"]
+"spellbook.backends.slurm_megatron" = ["*.j2"]
