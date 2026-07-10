@@ -42,6 +42,8 @@ submit(cfg, ckpt_step=3000)
 
 `MegatronEvalConfig.install_commands` is inserted as raw shell inside the eval
 `srun` shell before `lm_eval` starts. Use it for per-eval package installs.
+Rendered jobs use `set -e` in both the outer sbatch shell and the nested eval
+shell, so setup, installation, and evaluation failures stop the job immediately.
 
 Set `MegatronEvalConfig.metadata` to a JSON-serializable mapping to pass it to
 lm-eval as the top-level `--metadata` option. The option is omitted when the
