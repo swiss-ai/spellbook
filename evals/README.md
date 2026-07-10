@@ -25,6 +25,7 @@ cfg = MegatronEvalConfig(
     tokenizer_model="swiss-ai/Apertus-70B-2509",
     megatron_path="/path/to/Megatron-LM",
     tasks=["hellaswag", "winogrande", "arc_easy", "arc_challenge"],
+    metadata={"training_run": "my-run", "checkpoint_step": 3000},
     account="a139",
     partition="normal",
     nodes=4,
@@ -41,6 +42,10 @@ submit(cfg, ckpt_step=3000)
 
 `MegatronEvalConfig.install_commands` is inserted as raw shell inside the eval
 `srun` shell before `lm_eval` starts. Use it for per-eval package installs.
+
+Set `MegatronEvalConfig.metadata` to a JSON-serializable mapping to pass it to
+lm-eval as the top-level `--metadata` option. The option is omitted when the
+mapping is empty.
 
 Set `launch_mode="tasks"` to launch one eval Python process per Slurm task
 instead of one node task that starts `torchrun`. In task mode,

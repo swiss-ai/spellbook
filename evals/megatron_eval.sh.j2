@@ -161,6 +161,9 @@ numactl --cpunodebind="${SLURM_LOCALID}" --membind="${SLURM_LOCALID}" \
     --model_args "load={{ checkpoint_dir }}/${MODEL_NAME},tokenizer_type=HuggingFaceTokenizer,tokenizer_model={{ tokenizer_model }},ckpt_step=${CKPT_STEP},transformer_impl=transformer_engine,devices=$NUM_GPUS,EP={{ ep }}{% if extra_args %},extra_args={{ extra_args }}{% endif %}" \
     --tasks {{ tasks_str }} \
     --batch_size {{ batch_size }} \
+{% if metadata %}
+    --metadata '"'"'{{ metadata | tojson }}'"'"' \
+{% endif %}
     --output_path ${OUTPUT_DIR} \
     ${WANDB_ARGS}
 {% else %}
@@ -174,6 +177,9 @@ python -m torch.distributed.run \
     --model_args "load={{ checkpoint_dir }}/${MODEL_NAME},tokenizer_type=HuggingFaceTokenizer,tokenizer_model={{ tokenizer_model }},ckpt_step=${CKPT_STEP},transformer_impl=transformer_engine,devices=$NUM_GPUS,EP={{ ep }}{% if extra_args %},extra_args={{ extra_args }}{% endif %}" \
     --tasks {{ tasks_str }} \
     --batch_size {{ batch_size }} \
+{% if metadata %}
+    --metadata '"'"'{{ metadata | tojson }}'"'"' \
+{% endif %}
     --output_path ${OUTPUT_DIR} \
     ${WANDB_ARGS}
 {% endif %}
