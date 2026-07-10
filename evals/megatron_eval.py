@@ -48,6 +48,7 @@ class MegatronEvalConfig:
     batch_size: int = 16
     devices: int = 4                 # total GPUs passed to lm_eval (--devices)
     ep: int = 1
+    seq_length: int = 4096           # lm-eval adapter context limit
     metadata: dict[str, object] = dataclasses.field(default_factory=dict)
     extra_args: str = ""             # extra flags appended verbatim to lm_eval model_args
 

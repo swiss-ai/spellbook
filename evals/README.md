@@ -25,6 +25,7 @@ cfg = MegatronEvalConfig(
     tokenizer_model="swiss-ai/Apertus-70B-2509",
     megatron_path="/path/to/Megatron-LM",
     tasks=["hellaswag", "winogrande", "arc_easy", "arc_challenge"],
+    seq_length=8192,
     metadata={"training_run": "my-run", "checkpoint_step": 3000},
     account="a139",
     partition="normal",
@@ -44,6 +45,11 @@ submit(cfg, ckpt_step=3000)
 `srun` shell before `lm_eval` starts. Use it for per-eval package installs.
 Rendered jobs use `set -e` in both the outer sbatch shell and the nested eval
 shell, so setup, installation, and evaluation failures stop the job immediately.
+
+`MegatronEvalConfig.seq_length` is passed directly to the Megatron lm-eval
+adapter in `--model_args`. Set it to the desired evaluation context length; a
+`--seq-length` flag in `extra_args` only configures Megatron after the adapter's
+own maximum length has already been initialized.
 
 Set `MegatronEvalConfig.metadata` to a JSON-serializable mapping to pass it to
 lm-eval as the top-level `--metadata` option. The option is omitted when the

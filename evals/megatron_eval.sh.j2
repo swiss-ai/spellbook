@@ -161,7 +161,7 @@ export HF_HUB_OFFLINE=1
 {% if launch_mode == "tasks" %}
 numactl --cpunodebind="${SLURM_LOCALID}" --membind="${SLURM_LOCALID}" \
   python -m lm_eval --model megatron_lm \
-    --model_args "load={{ checkpoint_dir }}/${MODEL_NAME},tokenizer_type=HuggingFaceTokenizer,tokenizer_model={{ tokenizer_model }},ckpt_step=${CKPT_STEP},transformer_impl=transformer_engine,devices=$NUM_GPUS,EP={{ ep }}{% if extra_args %},extra_args={{ extra_args }}{% endif %}" \
+    --model_args "load={{ checkpoint_dir }}/${MODEL_NAME},tokenizer_type=HuggingFaceTokenizer,tokenizer_model={{ tokenizer_model }},ckpt_step=${CKPT_STEP},transformer_impl=transformer_engine,devices=$NUM_GPUS,EP={{ ep }},seq_length={{ seq_length }}{% if extra_args %},extra_args={{ extra_args }}{% endif %}" \
     --tasks {{ tasks_str }} \
     --batch_size {{ batch_size }} \
 {% if metadata %}    --metadata '"'"'{{ metadata | tojson }}'"'"' \
@@ -175,7 +175,7 @@ python -m torch.distributed.run \
   --master-addr=$MASTER_ADDR \
   --master-port=$MASTER_PORT \
   -m lm_eval --model megatron_lm \
-    --model_args "load={{ checkpoint_dir }}/${MODEL_NAME},tokenizer_type=HuggingFaceTokenizer,tokenizer_model={{ tokenizer_model }},ckpt_step=${CKPT_STEP},transformer_impl=transformer_engine,devices=$NUM_GPUS,EP={{ ep }}{% if extra_args %},extra_args={{ extra_args }}{% endif %}" \
+    --model_args "load={{ checkpoint_dir }}/${MODEL_NAME},tokenizer_type=HuggingFaceTokenizer,tokenizer_model={{ tokenizer_model }},ckpt_step=${CKPT_STEP},transformer_impl=transformer_engine,devices=$NUM_GPUS,EP={{ ep }},seq_length={{ seq_length }}{% if extra_args %},extra_args={{ extra_args }}{% endif %}" \
     --tasks {{ tasks_str }} \
     --batch_size {{ batch_size }} \
 {% if metadata %}    --metadata '"'"'{{ metadata | tojson }}'"'"' \
