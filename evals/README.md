@@ -42,6 +42,11 @@ submit(cfg, ckpt_step=3000)
 `MegatronEvalConfig.install_commands` is inserted as raw shell inside the eval
 `srun` shell before `lm_eval` starts. Use it for per-eval package installs.
 
+Set `launch_mode="tasks"` to launch one eval Python process per Slurm task
+instead of one node task that starts `torchrun`. In task mode,
+`ntasks-per-node` is set to `gpus_per_node`, and each task receives Slurm's
+`RANK`, `LOCAL_RANK`, and `WORLD_SIZE` environment.
+
 ### Submit a range of checkpoints
 
 ```python

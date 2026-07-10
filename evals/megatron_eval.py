@@ -55,6 +55,7 @@ class MegatronEvalConfig:
     partition: str = ""
     nodes: int = 1
     gpus_per_node: int = 4
+    launch_mode: str = "torchrun"     # "torchrun" or "tasks"
     run_time: str = "03:00:00"
     reservation: str = ""
     log_dir: str = "slurm_logs/eval"
@@ -86,6 +87,12 @@ class MegatronEvalConfig:
 
 
 def _render(cfg: MegatronEvalConfig, ckpt_step: int, dependency_singleton: bool) -> str:
+    if cfg.launch_mode not in {"torchrun", "tasks"}:
+        raise ValueError(
+            f"Unsupported MegatronEvalConfig.launch_mode={cfg.launch_mode!r}; "
+            "expected 'torchrun' or 'tasks'."
+        )
+
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),
         undefined=StrictUndefined,
@@ -97,6 +104,8 @@ def _render(cfg: MegatronEvalConfig, ckpt_step: int, dependency_singleton: bool)
     ctx["date"] = datetime.now().strftime("%Y-%m-%d")
     ctx["dependency_singleton"] = dependency_singleton
     ctx["tasks_str"] = ",".join(cfg.tasks)
+    ctx["ntasks_per_node"] = cfg.gpus_per_node if cfg.launch_mode == "tasks" else 1
+    ctx["total_tasks"] = cfg.nodes * ctx["ntasks_per_node"]
     return tmpl.render(ctx)
 
 

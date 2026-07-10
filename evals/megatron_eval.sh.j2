@@ -2,7 +2,7 @@
 #SBATCH --nodes={{ nodes }}
 #SBATCH --account={{ account }}
 #SBATCH --partition={{ partition }}
-#SBATCH --ntasks-per-node=1
+#SBATCH --ntasks-per-node={{ ntasks_per_node }}
 #SBATCH --time={{ run_time }}
 #SBATCH --job-name=eval_{{ model_name }}
 #SBATCH --output={{ log_dir }}/{{ model_name }}/{{ model_name }}-{{ ckpt_step }}-{{ date }}-%j.out
@@ -30,7 +30,7 @@ export GPUS_PER_NODE="${SLURM_GPUS_ON_NODE}"
 export HOSTNAMES="$(scontrol show hostnames "$SLURM_JOB_NODELIST")"
 export MASTER_ADDR="$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)"
 export MASTER_PORT=6991
-export WORLD_SIZE="$(scontrol show hostnames "$SLURM_JOB_NODELIST" | wc -l)"
+export WORLD_SIZE="${SLURM_NTASKS:-{{ total_tasks }}}"
 export SLURM_JOB_ID="${SLURM_JOB_ID}"
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export CUDA_CACHE_DISABLE=1
@@ -56,6 +56,10 @@ mkdir -p {{ log_dir }}/{{ model_name }}
 export OUTPUT_DIR="evals/{{ model_name }}/step_{{ ckpt_step }}"
 
 srun \
+{%- if launch_mode == "tasks" %}
+  --ntasks={{ total_tasks }} \
+  --ntasks-per-node={{ gpus_per_node }} \
+{%- endif %}
   --export=LOCAL_RANK,RANK,GPUS_PER_NODE,HOSTNAMES,MASTER_ADDR,MASTER_PORT,WORLD_SIZE,SLURM_JOB_ID,TORCH_NCCL_ASYNC_ERROR_HANDLING,CUDA_CACHE_DISABLE,MEGATRON_PATH,HF_TOKEN,WANDB_API_KEY,MODEL_NAME,CKPT_STEP,OUTPUT_DIR \
   --mpi=pmix -l \
 {%- if container_edf %}
@@ -68,6 +72,14 @@ srun \
 set -x
 ulimit -c 0
 
+{% if launch_mode == "tasks" %}
+export RANK="${SLURM_PROCID}"
+export LOCAL_RANK="${SLURM_LOCALID}"
+export WORLD_SIZE="${SLURM_NTASKS:-{{ total_tasks }}}"
+export MASTER_ADDR="${MASTER_ADDR}"
+export MASTER_PORT="${MASTER_PORT}"
+
+{% endif %}
 export MEGATRON_PATH="${MEGATRON_PATH}"
 export PYTHONPATH="${MEGATRON_PATH}:${PYTHONPATH:-}"
 
@@ -143,6 +155,15 @@ fi
 # Turn off hf hub so we dont have all ranks doing requests to the HF api and making us get rate limited
 export HF_HUB_OFFLINE=1
 
+{% if launch_mode == "tasks" %}
+numactl --cpunodebind="${SLURM_LOCALID}" --membind="${SLURM_LOCALID}" \
+  python -m lm_eval --model megatron_lm \
+    --model_args "load={{ checkpoint_dir }}/${MODEL_NAME},tokenizer_type=HuggingFaceTokenizer,tokenizer_model={{ tokenizer_model }},ckpt_step=${CKPT_STEP},transformer_impl=transformer_engine,devices=$NUM_GPUS,EP={{ ep }}{% if extra_args %},extra_args={{ extra_args }}{% endif %}" \
+    --tasks {{ tasks_str }} \
+    --batch_size {{ batch_size }} \
+    --output_path ${OUTPUT_DIR} \
+    ${WANDB_ARGS}
+{% else %}
 python -m torch.distributed.run \
   --nproc-per-node=$NPROC_PER_NODE \
   --nnodes=$NNODES \
@@ -155,4 +176,5 @@ python -m torch.distributed.run \
     --batch_size {{ batch_size }} \
     --output_path ${OUTPUT_DIR} \
     ${WANDB_ARGS}
+{% endif %}
 '
