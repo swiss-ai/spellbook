@@ -52,6 +52,7 @@ class MegatronEvalConfig:
     metadata: dict[str, object] = dataclasses.field(default_factory=dict)
     extra_args: str = ""             # extra flags appended verbatim to lm_eval model_args
     output_dir: str | None = None     # defaults to <submission directory>/evals
+    log_samples: bool = False         # save per-example inputs and model outputs
 
     # --- Slurm ---
     account: str = ""

@@ -28,6 +28,7 @@ cfg = MegatronEvalConfig(
     seq_length=8192,
     metadata={"training_run": "my-run", "checkpoint_step": 3000},
     output_dir="/path/to/eval-results",
+    log_samples=True,
     account="a139",
     partition="normal",
     nodes=4,
@@ -61,6 +62,12 @@ results. Each job writes below
 `<output_dir>/<model_name>/step_<ckpt_step>`. When unset, the base directory is
 `<submission directory>/evals`. Configured relative paths are also converted to
 absolute paths from the directory where the job is rendered and submitted.
+
+Set `MegatronEvalConfig.log_samples=True` to pass `--log_samples` to lm-eval.
+This saves per-example inputs and model responses as
+`samples_<task>_<timestamp>.jsonl` alongside the aggregate results beneath the
+checkpoint output directory. It is disabled by default because sample logs can
+consume substantial storage.
 
 Set `launch_mode="tasks"` to launch one eval Python process per Slurm task
 instead of one node task that starts `torchrun`. In task mode,

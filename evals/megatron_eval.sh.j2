@@ -165,6 +165,7 @@ numactl --cpunodebind="${SLURM_LOCALID}" --membind="${SLURM_LOCALID}" \
     --tasks {{ tasks_str }} \
     --batch_size {{ batch_size }} \
 {% if metadata %}    --metadata '"'"'{{ metadata | tojson }}'"'"' \
+{% endif %}{% if log_samples %}    --log_samples \
 {% endif %}    --output_path "${OUTPUT_DIR}" \
     ${WANDB_ARGS}
 {% else %}
@@ -179,6 +180,7 @@ python -m torch.distributed.run \
     --tasks {{ tasks_str }} \
     --batch_size {{ batch_size }} \
 {% if metadata %}    --metadata '"'"'{{ metadata | tojson }}'"'"' \
+{% endif %}{% if log_samples %}    --log_samples \
 {% endif %}    --output_path "${OUTPUT_DIR}" \
     ${WANDB_ARGS}
 {% endif %}
