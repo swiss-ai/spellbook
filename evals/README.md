@@ -35,6 +35,7 @@ cfg = MegatronEvalConfig(
     partition="normal",
     nodes=4,
     gpus_per_node=4,
+    exclude="nid007277",
     install_commands="""
 pip install --upgrade --no-deps "nvidia-cutlass-dsl==4.4.2"
 pip install --upgrade --no-deps "quack-kernels[cu13]==0.4.1"
@@ -49,6 +50,11 @@ submit(cfg, ckpt_step=3000)
 `srun` shell before `lm_eval` starts. Use it for per-eval package installs.
 Rendered jobs use `set -e` in both the outer sbatch shell and the nested eval
 shell, so setup, installation, and evaluation failures stop the job immediately.
+
+Set `MegatronEvalConfig.exclude` to a Slurm node list such as `"nid007277"` or
+`"nid[007277-007279]"`. It is rendered as `#SBATCH --exclude=...` and passed to
+the `sbatch` invocation, so it applies whether the generated script is submitted
+through `submit()` or run manually with `sbatch`.
 
 `MegatronEvalConfig.seq_length` is passed directly to the Megatron lm-eval
 adapter in `--model_args`. Set it to the desired evaluation context length; a

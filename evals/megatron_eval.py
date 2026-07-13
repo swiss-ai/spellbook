@@ -69,6 +69,7 @@ class MegatronEvalConfig:
     launch_mode: str = "torchrun"     # "torchrun" or "tasks"
     run_time: str = "03:00:00"
     reservation: str = ""
+    exclude: str = ""                 # Slurm node list passed to --exclude
     log_dir: str = "slurm_logs/eval"
 
     # --- Container ---
@@ -173,12 +174,14 @@ def _render(cfg: MegatronEvalConfig, ckpt_step: int, dependency_singleton: bool)
     return tmpl.render(ctx)
 
 
-def _sbatch(script: str, reservation: str) -> str:
+def _sbatch(script: str, reservation: str, exclude: str) -> str:
     with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
         f.write(script)
         tmp_path = f.name
     try:
         cmd = ["sbatch"]
+        if exclude:
+            cmd += [f"--exclude={exclude}"]
         if reservation:
             cmd += [f"--reservation={reservation}"]
         cmd.append(tmp_path)
@@ -227,7 +230,7 @@ def render_watcher_script(
 def submit(cfg: MegatronEvalConfig, ckpt_step: int, dependency_singleton: bool = False) -> str:
     """Render and submit a single eval job. Returns the Slurm job ID."""
     script = _render(cfg, ckpt_step, dependency_singleton)
-    job_id = _sbatch(script, cfg.reservation)
+    job_id = _sbatch(script, cfg.reservation, cfg.exclude)
     print(f"  {cfg.model_name} step={ckpt_step}: submitted → job {job_id}")
     return job_id
 

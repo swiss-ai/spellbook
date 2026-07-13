@@ -15,6 +15,9 @@
 {%- if reservation %}
 #SBATCH --reservation={{ reservation }}
 {%- endif %}
+{%- if exclude %}
+#SBATCH --exclude={{ exclude }}
+{%- endif %}
 
 set -e
 
