@@ -26,6 +26,7 @@ cfg = MegatronEvalConfig(
     megatron_path="/path/to/Megatron-LM",
     tasks=["hellaswag", "winogrande", "arc_easy", "arc_challenge"],
     seq_length=8192,
+    micro_batch_size=10,
     metadata={"training_run": "my-run", "checkpoint_step": 3000},
     output_dir="/path/to/eval-results",
     log_samples=True,
@@ -53,6 +54,12 @@ shell, so setup, installation, and evaluation failures stop the job immediately.
 adapter in `--model_args`. Set it to the desired evaluation context length; a
 `--seq-length` flag in `extra_args` only configures Megatron after the adapter's
 own maximum length has already been initialized.
+
+`MegatronEvalConfig.micro_batch_size` is passed directly to the Megatron
+lm-eval adapter inside `--model_args` as `micro_batch_size=<value>`. It controls
+the per-rank request batch used for model forwards and is separate from
+lm-eval's top-level `batch_size` option. Do not also pass
+`--micro-batch-size` through `extra_args`.
 
 Set `MegatronEvalConfig.metadata` to a JSON-serializable mapping to pass it to
 lm-eval as the top-level `--metadata` option. The option is omitted when the

@@ -54,6 +54,7 @@ class MegatronEvalConfig:
     devices: int = 4                 # total GPUs passed to lm_eval (--devices)
     ep: int = 1
     seq_length: int = 4096           # lm-eval adapter context limit
+    micro_batch_size: int = 1        # per-rank batch passed to the lm-eval adapter
     metadata: dict[str, object] = dataclasses.field(default_factory=dict, metadata=_LM_EVAL_ARG)
     extra_args: str = ""             # extra flags appended verbatim to lm_eval model_args
     output_dir: str | None = None     # defaults to <submission directory>/evals
@@ -115,6 +116,7 @@ def _model_args(cfg: MegatronEvalConfig, ckpt_step: int) -> str:
             "devices": cfg.devices,
             "EP": cfg.ep,
             "seq_length": cfg.seq_length,
+            "micro_batch_size": cfg.micro_batch_size,
             "extra_args": cfg.extra_args,
         }
     )
