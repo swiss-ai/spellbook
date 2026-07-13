@@ -50,6 +50,8 @@ submit(cfg, ckpt_step=3000)
 `srun` shell before `lm_eval` starts. Use it for per-eval package installs.
 Rendered jobs use `set -e` in both the outer sbatch shell and the nested eval
 shell, so setup, installation, and evaluation failures stop the job immediately.
+Each eval node also creates its process-specific Triton and TorchInductor cache
+directories on local `/tmp` storage before importing the model libraries.
 
 Set `MegatronEvalConfig.exclude` to a Slurm node list such as `"nid007277"` or
 `"nid[007277-007279]"`. It is rendered as `#SBATCH --exclude=...` and passed to
