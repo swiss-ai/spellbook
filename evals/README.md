@@ -29,6 +29,7 @@ cfg = MegatronEvalConfig(
     metadata={"training_run": "my-run", "checkpoint_step": 3000},
     output_dir="/path/to/eval-results",
     log_samples=True,
+    write_out=True,
     account="a139",
     partition="normal",
     nodes=4,
@@ -68,6 +69,15 @@ This saves per-example inputs and model responses as
 `samples_<task>_<timestamp>.jsonl` alongside the aggregate results beneath the
 checkpoint output directory. It is disabled by default because sample logs can
 consume substantial storage.
+
+Set `MegatronEvalConfig.write_out=True` to pass `--write_out` to lm-eval and
+print the prompts for the first few documents. This is a diagnostic option and
+is independent of the per-sample files controlled by `log_samples`.
+
+lm-eval command-line options are generated from the Python configuration field
+names (`write_out` becomes `--write_out`) rather than being listed individually
+in the Jinja template. Fields marked as lm-eval options in `MegatronEvalConfig`
+are therefore rendered consistently for both launch modes.
 
 Set `launch_mode="tasks"` to launch one eval Python process per Slurm task
 instead of one node task that starts `torchrun`. In task mode,

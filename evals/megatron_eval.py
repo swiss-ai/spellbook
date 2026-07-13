@@ -18,13 +18,18 @@ import dataclasses
 import os
 import subprocess
 import tempfile
+from collections.abc import Mapping
+from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from datetime import datetime
+from typing import Any
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
+from evals import flags as lm_eval_flags
+
 _TEMPLATES_DIR = Path(__file__).parent
+_LM_EVAL_ARG = {"lm_eval_arg": True}
 
 
 class RangeMode(Enum):
@@ -44,15 +49,16 @@ class MegatronEvalConfig:
     megatron_commit: str = ""        # if set, a git worktree is pinned to this commit
 
     # --- Eval ---
-    tasks: list[str] = dataclasses.field(default_factory=list)
-    batch_size: int = 16
+    tasks: list[str] = dataclasses.field(default_factory=list, metadata=_LM_EVAL_ARG)
+    batch_size: int = dataclasses.field(default=16, metadata=_LM_EVAL_ARG)
     devices: int = 4                 # total GPUs passed to lm_eval (--devices)
     ep: int = 1
     seq_length: int = 4096           # lm-eval adapter context limit
-    metadata: dict[str, object] = dataclasses.field(default_factory=dict)
+    metadata: dict[str, object] = dataclasses.field(default_factory=dict, metadata=_LM_EVAL_ARG)
     extra_args: str = ""             # extra flags appended verbatim to lm_eval model_args
     output_dir: str | None = None     # defaults to <submission directory>/evals
-    log_samples: bool = False         # save per-example inputs and model outputs
+    log_samples: bool = dataclasses.field(default=False, metadata=_LM_EVAL_ARG)
+    write_out: bool = dataclasses.field(default=False, metadata=_LM_EVAL_ARG)  # print prompts
 
     # --- Slurm ---
     account: str = ""
@@ -90,6 +96,43 @@ class MegatronEvalConfig:
     env_vars: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
+def _marked_lm_eval_args(cfg: MegatronEvalConfig) -> dict[str, Any]:
+    return {
+        field.name: getattr(cfg, field.name)
+        for field in dataclasses.fields(cfg)
+        if field.metadata.get("lm_eval_arg")
+    }
+
+
+def _model_args(cfg: MegatronEvalConfig, ckpt_step: int) -> str:
+    return lm_eval_flags.model_args(
+        {
+            "load": f"{cfg.checkpoint_dir}/{cfg.model_name}",
+            "tokenizer_type": "HuggingFaceTokenizer",
+            "tokenizer_model": cfg.tokenizer_model,
+            "ckpt_step": ckpt_step,
+            "transformer_impl": "transformer_engine",
+            "devices": cfg.devices,
+            "EP": cfg.ep,
+            "seq_length": cfg.seq_length,
+            "extra_args": cfg.extra_args,
+        }
+    )
+
+
+def _lm_eval_args(
+    cfg: MegatronEvalConfig,
+    ckpt_step: int,
+    output_path: Path,
+) -> Mapping[str, Any]:
+    return {
+        "model": "megatron_lm",
+        "model_args": _model_args(cfg, ckpt_step),
+        **_marked_lm_eval_args(cfg),
+        "output_path": str(output_path),
+    }
+
+
 def _render(cfg: MegatronEvalConfig, ckpt_step: int, dependency_singleton: bool) -> str:
     if cfg.launch_mode not in {"torchrun", "tasks"}:
         raise ValueError(
@@ -107,11 +150,24 @@ def _render(cfg: MegatronEvalConfig, ckpt_step: int, dependency_singleton: bool)
     ctx["ckpt_step"] = ckpt_step
     ctx["date"] = datetime.now().strftime("%Y-%m-%d")
     ctx["dependency_singleton"] = dependency_singleton
-    ctx["tasks_str"] = ",".join(cfg.tasks)
     ctx["ntasks_per_node"] = cfg.gpus_per_node if cfg.launch_mode == "tasks" else 1
     ctx["total_tasks"] = cfg.nodes * ctx["ntasks_per_node"]
     output_dir = Path(cfg.output_dir).expanduser() if cfg.output_dir else Path.cwd() / "evals"
+    output_path = output_dir.resolve() / cfg.model_name / f"step_{ckpt_step}"
     ctx["output_dir"] = str(output_dir.resolve())
+    ctx["lm_eval_args_lines"] = lm_eval_flags.to_shell_lines(
+        _lm_eval_args(cfg, ckpt_step, output_path)
+    )
+    wandb_args = {
+        "wandb_args": (
+            f"project={cfg.wandb_project},"
+            f"id={cfg.wandb_id or cfg.model_name},"
+            f"step={ckpt_step},resume=allow"
+        )
+        if cfg.wandb_project
+        else None
+    }
+    ctx["wandb_args_line"] = next(iter(lm_eval_flags.to_shell_lines(wandb_args)), "")
     return tmpl.render(ctx)
 
 

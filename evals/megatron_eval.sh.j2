@@ -137,16 +137,15 @@ fi
 NPROC_PER_NODE={{ gpus_per_node }}
 NNODES=$(echo "$HOSTNAMES" | wc -l)
 NODE_RANK=${SLURM_PROCID}
-NUM_GPUS={{ devices }}
 
 mkdir -p "${OUTPUT_DIR}"
 
 # Only the first node logs to wandb; otherwise every node task initializes the
 # same run id concurrently, which collides and hangs at wandb sync.
-WANDB_ARGS=""
+WANDB_ARGS=()
 {%- if wandb_project %}
 if [[ "${SLURM_PROCID}" == "0" ]]; then
-  WANDB_ARGS="--wandb_args project={{ wandb_project }},id={{ wandb_id if wandb_id else model_name }},step=${CKPT_STEP},resume=allow"
+  WANDB_ARGS=({{ wandb_args_line }})
 fi
 {%- endif %}
 
@@ -160,14 +159,9 @@ export HF_HUB_OFFLINE=1
 
 {% if launch_mode == "tasks" %}
 numactl --cpunodebind="${SLURM_LOCALID}" --membind="${SLURM_LOCALID}" \
-  python -m lm_eval --model megatron_lm \
-    --model_args "load={{ checkpoint_dir }}/${MODEL_NAME},tokenizer_type=HuggingFaceTokenizer,tokenizer_model={{ tokenizer_model }},ckpt_step=${CKPT_STEP},transformer_impl=transformer_engine,devices=$NUM_GPUS,EP={{ ep }},seq_length={{ seq_length }}{% if extra_args %},extra_args={{ extra_args }}{% endif %}" \
-    --tasks {{ tasks_str }} \
-    --batch_size {{ batch_size }} \
-{% if metadata %}    --metadata '"'"'{{ metadata | tojson }}'"'"' \
-{% endif %}{% if log_samples %}    --log_samples \
-{% endif %}    --output_path "${OUTPUT_DIR}" \
-    ${WANDB_ARGS}
+  python -m lm_eval \
+    {{ lm_eval_args_lines | join(" \\\n    ") }} \
+    "${WANDB_ARGS[@]}"
 {% else %}
 python -m torch.distributed.run \
   --nproc-per-node=$NPROC_PER_NODE \
@@ -175,13 +169,8 @@ python -m torch.distributed.run \
   --node-rank=$NODE_RANK \
   --master-addr=$MASTER_ADDR \
   --master-port=$MASTER_PORT \
-  -m lm_eval --model megatron_lm \
-    --model_args "load={{ checkpoint_dir }}/${MODEL_NAME},tokenizer_type=HuggingFaceTokenizer,tokenizer_model={{ tokenizer_model }},ckpt_step=${CKPT_STEP},transformer_impl=transformer_engine,devices=$NUM_GPUS,EP={{ ep }},seq_length={{ seq_length }}{% if extra_args %},extra_args={{ extra_args }}{% endif %}" \
-    --tasks {{ tasks_str }} \
-    --batch_size {{ batch_size }} \
-{% if metadata %}    --metadata '"'"'{{ metadata | tojson }}'"'"' \
-{% endif %}{% if log_samples %}    --log_samples \
-{% endif %}    --output_path "${OUTPUT_DIR}" \
-    ${WANDB_ARGS}
+  -m lm_eval \
+    {{ lm_eval_args_lines | join(" \\\n    ") }} \
+    "${WANDB_ARGS[@]}"
 {% endif %}
 '
