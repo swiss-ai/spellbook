@@ -55,7 +55,7 @@ export MEGATRON_PATH="{{ megatron_path }}"
 
 mkdir -p {{ log_dir }}/{{ model_name }}
 
-export OUTPUT_DIR="evals/{{ model_name }}/step_{{ ckpt_step }}"
+export OUTPUT_DIR="{{ output_dir }}/{{ model_name }}/step_{{ ckpt_step }}"
 
 srun \
 {%- if launch_mode == "tasks" %}
@@ -165,7 +165,7 @@ numactl --cpunodebind="${SLURM_LOCALID}" --membind="${SLURM_LOCALID}" \
     --tasks {{ tasks_str }} \
     --batch_size {{ batch_size }} \
 {% if metadata %}    --metadata '"'"'{{ metadata | tojson }}'"'"' \
-{% endif %}    --output_path ${OUTPUT_DIR} \
+{% endif %}    --output_path "${OUTPUT_DIR}" \
     ${WANDB_ARGS}
 {% else %}
 python -m torch.distributed.run \
@@ -179,7 +179,7 @@ python -m torch.distributed.run \
     --tasks {{ tasks_str }} \
     --batch_size {{ batch_size }} \
 {% if metadata %}    --metadata '"'"'{{ metadata | tojson }}'"'"' \
-{% endif %}    --output_path ${OUTPUT_DIR} \
+{% endif %}    --output_path "${OUTPUT_DIR}" \
     ${WANDB_ARGS}
 {% endif %}
 '

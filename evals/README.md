@@ -27,6 +27,7 @@ cfg = MegatronEvalConfig(
     tasks=["hellaswag", "winogrande", "arc_easy", "arc_challenge"],
     seq_length=8192,
     metadata={"training_run": "my-run", "checkpoint_step": 3000},
+    output_dir="/path/to/eval-results",
     account="a139",
     partition="normal",
     nodes=4,
@@ -54,6 +55,12 @@ own maximum length has already been initialized.
 Set `MegatronEvalConfig.metadata` to a JSON-serializable mapping to pass it to
 lm-eval as the top-level `--metadata` option. The option is omitted when the
 mapping is empty.
+
+Set `MegatronEvalConfig.output_dir` to the base directory for lm-eval's JSON
+results. Each job writes below
+`<output_dir>/<model_name>/step_<ckpt_step>`. When unset, the base directory is
+`<submission directory>/evals`. Configured relative paths are also converted to
+absolute paths from the directory where the job is rendered and submitted.
 
 Set `launch_mode="tasks"` to launch one eval Python process per Slurm task
 instead of one node task that starts `torchrun`. In task mode,

@@ -51,6 +51,7 @@ class MegatronEvalConfig:
     seq_length: int = 4096           # lm-eval adapter context limit
     metadata: dict[str, object] = dataclasses.field(default_factory=dict)
     extra_args: str = ""             # extra flags appended verbatim to lm_eval model_args
+    output_dir: str | None = None     # defaults to <submission directory>/evals
 
     # --- Slurm ---
     account: str = ""
@@ -108,6 +109,8 @@ def _render(cfg: MegatronEvalConfig, ckpt_step: int, dependency_singleton: bool)
     ctx["tasks_str"] = ",".join(cfg.tasks)
     ctx["ntasks_per_node"] = cfg.gpus_per_node if cfg.launch_mode == "tasks" else 1
     ctx["total_tasks"] = cfg.nodes * ctx["ntasks_per_node"]
+    output_dir = Path(cfg.output_dir).expanduser() if cfg.output_dir else Path.cwd() / "evals"
+    ctx["output_dir"] = str(output_dir.resolve())
     return tmpl.render(ctx)
 
 
