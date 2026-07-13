@@ -85,6 +85,8 @@ class MegatronEvalConfig:
 
     # --- lm-eval install ---
     lm_eval_install: str = ""        # pip install URL/path; skipped if empty
+    # Use the eval interpreter via python -m pip instead of bare pip.
+    lm_eval_install_with_python: bool = False
     install_commands: str = ""       # raw shell commands run before evaluation; skipped if empty
 
     # --- Dataset prefetch ---

@@ -119,7 +119,7 @@ export {{ key }}="{{ val }}"
 {% endif %}
 
 {% if lm_eval_install %}
-pip install {{ lm_eval_install }} --no-build-isolation
+{% if lm_eval_install_with_python %}python -m {% endif %}pip install {{ lm_eval_install }} --no-build-isolation
 {% endif %}
 
 {% if hf_home %}

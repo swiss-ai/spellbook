@@ -53,6 +53,13 @@ shell, so setup, installation, and evaluation failures stop the job immediately.
 Each eval node also creates its process-specific Triton and TorchInductor cache
 directories on local `/tmp` storage before importing the model libraries.
 
+Set `MegatronEvalConfig.lm_eval_install` to an lm-evaluation-harness URL or path
+to install it before evaluation. By default the renderer preserves the existing
+`pip install` command. Set `lm_eval_install_with_python=True` to emit
+`python -m pip install` instead, ensuring the package is installed for the same
+`python` interpreter that launches `lm_eval`. Because `install_commands` is raw
+shell, use `python -m pip` there as well when interpreter consistency is needed.
+
 Set `MegatronEvalConfig.exclude` to a Slurm node list such as `"nid007277"` or
 `"nid[007277-007279]"`. It is rendered as `#SBATCH --exclude=...` and passed to
 the `sbatch` invocation, so it applies whether the generated script is submitted
