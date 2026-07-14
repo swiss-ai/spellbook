@@ -25,6 +25,7 @@ cfg = MegatronEvalConfig(
     tokenizer_model="swiss-ai/Apertus-70B-2509",
     megatron_path="/path/to/Megatron-LM",
     tasks=["hellaswag", "winogrande", "arc_easy", "arc_challenge"],
+    tp=2,
     seq_length=8192,
     micro_batch_size=10,
     cache_requests="true",
@@ -86,6 +87,12 @@ through `submit()` or run manually with `sbatch`.
 adapter in `--model_args`. Set it to the desired evaluation context length; a
 `--seq-length` flag in `extra_args` only configures Megatron after the adapter's
 own maximum length has already been initialized.
+
+Set `MegatronEvalConfig.tp` to the checkpoint's tensor-model-parallel size. It
+is passed to the Megatron lm-eval adapter inside `--model_args` as `TP=<value>`,
+alongside the existing `EP=<value>` setting. Both default to 1. The adapter
+currently requires `tp` to be either 1 or equal to `devices`, and does not
+support combining `tp > 1` with `ep > 1`.
 
 `MegatronEvalConfig.micro_batch_size` is passed directly to the Megatron
 lm-eval adapter inside `--model_args` as `micro_batch_size=<value>`. It controls

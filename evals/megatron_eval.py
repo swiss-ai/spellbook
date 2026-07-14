@@ -53,6 +53,7 @@ class MegatronEvalConfig:
     batch_size: int = dataclasses.field(default=16, metadata=_LM_EVAL_ARG)
     cache_requests: str = dataclasses.field(default="", metadata=_LM_EVAL_ARG)
     devices: int = 4                 # total GPUs passed to lm_eval (--devices)
+    tp: int = 1
     ep: int = 1
     seq_length: int = 4096           # lm-eval adapter context limit
     micro_batch_size: int = 1        # per-rank batch passed to the lm-eval adapter
@@ -118,6 +119,7 @@ def _model_args(cfg: MegatronEvalConfig, ckpt_step: int) -> str:
             "ckpt_step": ckpt_step,
             "transformer_impl": "transformer_engine",
             "devices": cfg.devices,
+            "TP": cfg.tp,
             "EP": cfg.ep,
             "seq_length": cfg.seq_length,
             "micro_batch_size": cfg.micro_batch_size,
