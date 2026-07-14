@@ -27,6 +27,7 @@ cfg = MegatronEvalConfig(
     tasks=["hellaswag", "winogrande", "arc_easy", "arc_challenge"],
     seq_length=8192,
     micro_batch_size=10,
+    cache_requests="true",
     metadata={"training_run": "my-run", "checkpoint_step": 3000},
     output_dir="/path/to/eval-results",
     log_samples=True,
@@ -36,6 +37,9 @@ cfg = MegatronEvalConfig(
     nodes=4,
     gpus_per_node=4,
     exclude="nid007277",
+    env_vars={
+        "LM_HARNESS_CACHE_PATH": "/path/to/lm_eval_requests",
+    },
     install_commands="""
 pip install --upgrade --no-deps "nvidia-cutlass-dsl==4.4.2"
 pip install --upgrade --no-deps "quack-kernels[cu13]==0.4.1"
@@ -64,6 +68,14 @@ to install it before evaluation. By default the renderer preserves the existing
 `python` interpreter that launches `lm_eval`. Because `install_commands` is raw
 shell, use `python -m pip` there as well when interpreter consistency is needed.
 This install uses the same once-per-node synchronization as `install_commands`.
+
+Set `MegatronEvalConfig.cache_requests="true"` to pass
+`--cache_requests true` to lm-eval, and set `LM_HARNESS_CACHE_PATH` in
+`env_vars` to choose the request-cache directory. This cache stores constructed
+and tokenized evaluation requests, so it can speed up repeated tasks across
+checkpoints. Do not share lm-eval's `--use_cache` across checkpoints: that cache
+contains model responses, which are specific to the checkpoint that produced
+them.
 
 Set `MegatronEvalConfig.exclude` to a Slurm node list such as `"nid007277"` or
 `"nid[007277-007279]"`. It is rendered as `#SBATCH --exclude=...` and passed to

@@ -51,6 +51,7 @@ class MegatronEvalConfig:
     # --- Eval ---
     tasks: list[str] = dataclasses.field(default_factory=list, metadata=_LM_EVAL_ARG)
     batch_size: int = dataclasses.field(default=16, metadata=_LM_EVAL_ARG)
+    cache_requests: str = dataclasses.field(default="", metadata=_LM_EVAL_ARG)
     devices: int = 4                 # total GPUs passed to lm_eval (--devices)
     ep: int = 1
     seq_length: int = 4096           # lm-eval adapter context limit
