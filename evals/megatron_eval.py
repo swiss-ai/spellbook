@@ -83,7 +83,7 @@ class MegatronEvalConfig:
     # --- Cache / storage ---
     hf_home: str = ""                # HF_HOME and HF_DATASETS_CACHE; skipped if empty
 
-    # --- lm-eval install ---
+    # --- lm-eval install (once per node) ---
     lm_eval_install: str = ""        # pip install URL/path; skipped if empty
     # Use the eval interpreter via python -m pip instead of bare pip.
     lm_eval_install_with_python: bool = False

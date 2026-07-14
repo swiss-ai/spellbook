@@ -118,13 +118,41 @@ export {{ key }}="{{ val }}"
 {% endfor %}
 {% endif %}
 
-{% if lm_eval_install %}
-{% if lm_eval_install_with_python %}python -m {% endif %}pip install {{ lm_eval_install }} --no-build-isolation
-{% endif %}
-
 {% if hf_home %}
 export HF_HOME="{{ hf_home }}"
 export HF_DATASETS_CACHE="{{ hf_home }}"
+{% endif %}
+
+{% if lm_eval_install or install_commands %}
+# Container filesystems are shared by tasks on the same node. Install from one
+# local rank and make the other local ranks wait before importing the packages.
+INSTALL_STATUS="/tmp/spellbook-lm-eval-install-${SLURM_JOB_ID}-${SLURM_STEP_ID:-0}.status"
+if [[ "${SLURM_LOCALID:-0}" == "0" ]]; then
+  set +e
+  (
+    set -e
+{% if lm_eval_install %}
+{% if lm_eval_install_with_python %}python -m {% endif %}pip install {{ lm_eval_install }} --no-build-isolation
+{% endif %}
+{% if install_commands %}
+# --- Install packages ---
+{{ install_commands }}
+{% endif %}
+  )
+  INSTALL_RC=$?
+  printf '%s\n' "${INSTALL_RC}" > "${INSTALL_STATUS}.tmp"
+  mv -f "${INSTALL_STATUS}.tmp" "${INSTALL_STATUS}"
+  set -e
+else
+  while [[ ! -f "${INSTALL_STATUS}" ]]; do
+    sleep 1
+  done
+  INSTALL_RC="$(<"${INSTALL_STATUS}")"
+fi
+if [[ "${INSTALL_RC}" != "0" ]]; then
+  echo "Package installation failed on $(hostname) with exit code ${INSTALL_RC}" >&2
+  exit "${INSTALL_RC}"
+fi
 {% endif %}
 
 {% if dataset_prefetch %}
@@ -152,11 +180,6 @@ if [[ "${SLURM_PROCID}" == "0" ]]; then
   WANDB_ARGS=({{ wandb_args_line }})
 fi
 {%- endif %}
-
-{% if install_commands %}
-# --- Install packages ---
-{{ install_commands }}
-{% endif %}
 
 # Turn off hf hub so we dont have all ranks doing requests to the HF api and making us get rate limited
 export HF_HUB_OFFLINE=1

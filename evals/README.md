@@ -47,7 +47,11 @@ submit(cfg, ckpt_step=3000)
 ```
 
 `MegatronEvalConfig.install_commands` is inserted as raw shell inside the eval
-`srun` shell before `lm_eval` starts. Use it for per-eval package installs.
+`srun` shell before `lm_eval` starts. Package installation runs once per node:
+local rank 0 performs it while the other local ranks wait for its result. This
+avoids concurrent package-manager writes to the node-shared container
+filesystem. Use it for per-eval package installs.
+
 Rendered jobs use `set -e` in both the outer sbatch shell and the nested eval
 shell, so setup, installation, and evaluation failures stop the job immediately.
 Each eval node also creates its process-specific Triton and TorchInductor cache
@@ -59,6 +63,7 @@ to install it before evaluation. By default the renderer preserves the existing
 `python -m pip install` instead, ensuring the package is installed for the same
 `python` interpreter that launches `lm_eval`. Because `install_commands` is raw
 shell, use `python -m pip` there as well when interpreter consistency is needed.
+This install uses the same once-per-node synchronization as `install_commands`.
 
 Set `MegatronEvalConfig.exclude` to a Slurm node list such as `"nid007277"` or
 `"nid[007277-007279]"`. It is rendered as `#SBATCH --exclude=...` and passed to
@@ -104,7 +109,8 @@ are therefore rendered consistently for both launch modes.
 Set `launch_mode="tasks"` to launch one eval Python process per Slurm task
 instead of one node task that starts `torchrun`. In task mode,
 `ntasks-per-node` is set to `gpus_per_node`, and each task receives Slurm's
-`RANK`, `LOCAL_RANK`, and `WORLD_SIZE` environment.
+`RANK`, `LOCAL_RANK`, and `WORLD_SIZE` environment. Only local rank 0 installs
+packages; its sibling ranks wait before starting `lm_eval`.
 
 ### Submit a range of checkpoints
 
