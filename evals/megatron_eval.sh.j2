@@ -140,7 +140,7 @@ if [[ "${SLURM_LOCALID:-0}" == "0" ]]; then
 {% endif %}
   )
   INSTALL_RC=$?
-  printf '%s\n' "${INSTALL_RC}" > "${INSTALL_STATUS}.tmp"
+  printf "%s\n" "${INSTALL_RC}" > "${INSTALL_STATUS}.tmp"
   mv -f "${INSTALL_STATUS}.tmp" "${INSTALL_STATUS}"
   set -e
 else
