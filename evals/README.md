@@ -51,6 +51,12 @@ pip install --no-deps "git+https://github.com/andresnowak/sonic-moe.git@7d931fe0
 submit(cfg, ckpt_step=3000)
 ```
 
+`MegatronEvalConfig.megatron_path` accepts either a local checkout or a Git URL
+such as `https://github.com/NVIDIA/Megatron-LM.git`. A URL is cloned once into a
+deterministic cache below `${SCRATCH}/tmp/megatron_repos`; concurrent eval jobs
+using the same URL share the cached clone. Set `megatron_commit` to evaluate
+against a specific commit from either a local checkout or a cloned URL.
+
 `MegatronEvalConfig.install_commands` is inserted as raw shell inside the eval
 `srun` shell before `lm_eval` starts. Package installation runs once per node:
 local rank 0 performs it while the other local ranks wait for its result. This

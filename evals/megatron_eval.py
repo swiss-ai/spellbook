@@ -15,6 +15,7 @@ Usage — range of checkpoints:
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import os
 import subprocess
 import tempfile
@@ -23,6 +24,7 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
@@ -45,7 +47,7 @@ class MegatronEvalConfig:
     tokenizer_model: str
 
     # --- Megatron ---
-    megatron_path: str               # path to Megatron-LM repo
+    megatron_path: str               # local path or Git URL for the Megatron-LM repo
     megatron_commit: str = ""        # if set, a git worktree is pinned to this commit
 
     # --- Eval ---
@@ -141,6 +143,14 @@ def _lm_eval_args(
     }
 
 
+def _is_megatron_url(value: str) -> bool:
+    parsed = urlparse(value)
+    return (
+        parsed.scheme in {"git", "http", "https", "ssh"}
+        and bool(parsed.netloc)
+    ) or (value.startswith("git@") and ":" in value)
+
+
 def _render(cfg: MegatronEvalConfig, ckpt_step: int, dependency_singleton: bool) -> str:
     if cfg.launch_mode not in {"torchrun", "tasks"}:
         raise ValueError(
@@ -155,6 +165,15 @@ def _render(cfg: MegatronEvalConfig, ckpt_step: int, dependency_singleton: bool)
     )
     tmpl = env.get_template("megatron_eval.sh.j2")
     ctx = dataclasses.asdict(cfg)
+    if _is_megatron_url(cfg.megatron_path):
+        ctx["megatron_url"] = cfg.megatron_path
+        ctx["megatron_path"] = ""
+        ctx["megatron_cache_key"] = hashlib.sha256(
+            cfg.megatron_path.encode()
+        ).hexdigest()[:16]
+    else:
+        ctx["megatron_url"] = ""
+        ctx["megatron_cache_key"] = ""
     ctx["ckpt_step"] = ckpt_step
     ctx["date"] = datetime.now().strftime("%Y-%m-%d")
     ctx["dependency_singleton"] = dependency_singleton
