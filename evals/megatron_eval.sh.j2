@@ -92,6 +92,9 @@ srun \
 {%- if container_mounts %}
   --container-mounts="{{ container_mounts }}" \
 {%- endif %}
+{%- if srun_extra_args %}
+  {{ srun_extra_args }} \
+{%- endif %}
   -u bash -lc '
 set -e
 set -x

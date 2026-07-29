@@ -38,6 +38,7 @@ cfg = MegatronEvalConfig(
     nodes=4,
     gpus_per_node=4,
     exclude="nid007277",
+    srun_extra_args="--network=disable_rdzv_get",
     env_vars={
         "LM_HARNESS_CACHE_PATH": "/path/to/lm_eval_requests",
     },
@@ -56,6 +57,11 @@ such as `https://github.com/NVIDIA/Megatron-LM.git`. A URL is cloned once into a
 deterministic cache below `${SCRATCH}/tmp/megatron_repos`; concurrent eval jobs
 using the same URL share the cached clone. Set `megatron_commit` to evaluate
 against a specific commit from either a local checkout or a cloned URL.
+
+Set `MegatronEvalConfig.srun_extra_args` to raw flags that should be appended to
+the eval `srun` command. For example,
+`srun_extra_args="--network=disable_rdzv_get"` disables Slingshot rendezvous
+lookup for the containerized step.
 
 `MegatronEvalConfig.install_commands` is inserted as raw shell inside the eval
 `srun` shell before `lm_eval` starts. Package installation runs once per node:

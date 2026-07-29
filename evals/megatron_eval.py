@@ -71,6 +71,7 @@ class MegatronEvalConfig:
     nodes: int = 1
     gpus_per_node: int = 4
     launch_mode: str = "torchrun"     # "torchrun" or "tasks"
+    srun_extra_args: str = ""         # extra flags appended verbatim to srun
     run_time: str = "03:00:00"
     reservation: str = ""
     exclude: str = ""                 # Slurm node list passed to --exclude
