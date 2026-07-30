@@ -193,6 +193,7 @@ sweep = sweep_grid(
 - `mem_estimator=True`: render `mem_estimator.sh.j2`.
 
 Important fields:
+- `MegatronExperiment.megatron_path`: a local checkout or Git URL. URL sources are cloned once under `${SCRATCH}/tmp/megatron_repos`; an optional `megatron_commit` is checked out as a locked worktree under `${SCRATCH}/tmp`.
 - `extra`: generic Jinja template context (for example `container_edf`, `container_mounts`).
 - In `launch_mode="tasks"`, `extra` may also include `cpus_per_task`, `mem`, `no_requeue`, or raw `sbatch_extra_lines`.
 - `srun_extra_args`: extra raw flags inserted into every `srun` command. If this includes `--network=VALUE`, Spellbook also exports `SLURM_NETWORK=VALUE` before `srun` so the step inherits the same network setting.

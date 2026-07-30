@@ -34,7 +34,7 @@ class MegatronExperiment(Experiment):
     _lock_exclude: ClassVar[frozenset[str]] = frozenset({"wandb_exp_name", "training_args"})
 
     # --- Megatron path ---
-    megatron_path: str = ""
+    megatron_path: str = ""  # local checkout or git/http/https/ssh repository URL
     megatron_commit: str = ""  # if set, a git worktree is created at this commit and used instead
     training_script: str = "pretrain_gpt.py"
     pre_launch_commands: str = ""  # raw shell commands rendered before the main srun launch

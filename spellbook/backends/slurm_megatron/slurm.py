@@ -36,6 +36,7 @@ Launching one Python process per Slurm task instead of torchrun::
 
 from __future__ import annotations
 
+import hashlib
 import os
 import subprocess
 import tempfile
@@ -43,6 +44,7 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
@@ -51,6 +53,16 @@ from spellbook.backends.slurm_megatron.create_data_config import create_data_pre
 from spellbook.core.experiment import Experiment
 
 _TEMPLATES_DIR = Path(__file__).parent  # slurm_megatron/
+
+
+def _is_megatron_url(value: str) -> bool:
+    """Return whether a Megatron source is a supported Git URL."""
+    parsed = urlparse(value)
+    return (
+        parsed.scheme in {"git", "http", "https", "ssh"}
+        and bool(parsed.netloc)
+    ) or (value.startswith("git@") and ":" in value)
+
 
 # Variables always forwarded to srun workers regardless of experiment env_vars.
 _SRUN_INFRA_EXPORTS = [
@@ -227,6 +239,16 @@ class SlurmBackend:
         tmpl = env.get_template(self._template_name())
 
         d = experiment.to_dict()
+        megatron_source = str(d.get("megatron_path") or "")
+        if _is_megatron_url(megatron_source):
+            d["megatron_url"] = megatron_source
+            d["megatron_path"] = ""
+            d["megatron_cache_key"] = hashlib.sha256(
+                megatron_source.encode()
+            ).hexdigest()[:16]
+        else:
+            d["megatron_url"] = ""
+            d["megatron_cache_key"] = ""
         # Explicit data_path wins over data_args_path, which wins over discovery.
         if d.get("data_path") and d.get("data_args_path"):
             d["training_args"] = self._remove_training_arg(

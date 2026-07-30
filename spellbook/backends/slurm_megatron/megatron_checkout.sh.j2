@@ -1,0 +1,31 @@
+# --- Megatron checkout ---
+{% if megatron_url %}
+MEGATRON_REPO_PATH="${SCRATCH}/tmp/megatron_repos/{{ megatron_cache_key }}"
+mkdir -p "$(dirname "${MEGATRON_REPO_PATH}")"
+(
+  flock -x 9
+  if [[ ! -d "${MEGATRON_REPO_PATH}/.git" ]]; then
+    echo "Cloning Megatron-LM from {{ megatron_url }}"
+    git clone "{{ megatron_url }}" "${MEGATRON_REPO_PATH}"
+  fi
+) 9>"${MEGATRON_REPO_PATH}.lock"
+MEGATRON_SOURCE_PATH="${MEGATRON_REPO_PATH}"
+{% else %}
+MEGATRON_SOURCE_PATH="{{ megatron_path }}"
+{% endif %}
+
+# --- Optional Megatron worktree pin ---
+{% if megatron_commit %}
+MEGATRON_WORKTREE_PATH="${SCRATCH}/tmp/megatron_worktree_{{ megatron_commit }}"
+mkdir -p "$(dirname "${MEGATRON_WORKTREE_PATH}")"
+(
+  flock -x 9
+  if [[ ! -d "${MEGATRON_WORKTREE_PATH}" ]]; then
+    echo "Creating Megatron-LM worktree at commit {{ megatron_commit }}"
+    git -C "${MEGATRON_SOURCE_PATH}" worktree add "${MEGATRON_WORKTREE_PATH}" "{{ megatron_commit }}"
+  fi
+) 9>"${MEGATRON_WORKTREE_PATH}.lock"
+export MEGATRON_PATH="${MEGATRON_WORKTREE_PATH}"
+{% else %}
+export MEGATRON_PATH="${MEGATRON_SOURCE_PATH}"
+{% endif %}

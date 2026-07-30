@@ -24,18 +24,7 @@ export CUDA_CACHE_DISABLE=1
 export {{ key }}="{{ value }}"
 {%- endfor %}
 
-# --- Megatron worktree pin ---
-{% if megatron_commit %}
-MEGATRON_WORKTREE_PATH="${SCRATCH}/tmp/megatron_worktree_{{ megatron_commit }}"
-if [[ ! -d "${MEGATRON_WORKTREE_PATH}" ]]; then
-  echo "Creating Megatron-LM worktree at commit {{ megatron_commit }}"
-  mkdir -p "$(dirname "${MEGATRON_WORKTREE_PATH}")"
-  git -C "{{ megatron_path }}" worktree add "${MEGATRON_WORKTREE_PATH}" "{{ megatron_commit }}"
-fi
-export MEGATRON_PATH="${MEGATRON_WORKTREE_PATH}"
-{% else %}
-export MEGATRON_PATH="{{ megatron_path }}"
-{% endif %}
+{% include "megatron_checkout.sh.j2" %}
 
 # --- Megatron git metadata (resolved at runtime from final MEGATRON_PATH) ---
 export MEGATRON_GIT_BRANCH="$(git -C "${MEGATRON_PATH}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
@@ -77,10 +66,12 @@ export LOCAL_RANK=${SLURM_LOCALID}
 export RANK="${SLURM_PROCID}"
 
 # Re-export paths inside container
-export MEGATRON_PATH="{{ megatron_path }}"
-export PYTHONPATH="{{ pythonpath }}:${PYTHONPATH:-}"
+export MEGATRON_PATH="${MEGATRON_PATH:-{{ megatron_path }}}"
+export PYTHONPATH="${MEGATRON_PATH}:{{ pythonpath }}:${PYTHONPATH:-}"
 {% for key, value in env_vars.items() %}
+{%- if key != "MEGATRON_PATH" %}
 export {{ key }}="{{ value }}"
+{%- endif %}
 {%- endfor %}
 
 # Per-process Triton / inductor caches on local storage
@@ -124,7 +115,7 @@ if [[ "${NODE_ID}" == "0" ]]; then
       --master_addr "${MASTER_ADDR}" \
       --master_port "${MASTER_PORT}" \
 {%- endif %}
-      {{ megatron_path }}/{{ training_script }} \
+      ${MEGATRON_PATH}/{{ training_script }} \
       {{ training_args_lines | join(" \\\n      ") }} 2>&1 | tee "{{ log_dir }}/{{ job_name }}-${SRUN_JOB_ID}-node0.out"
 else
     ${PROFILE_CMD} ${DEBUG_CMD} python -m torch.distributed.run \
@@ -137,7 +128,7 @@ else
       --master_addr "${MASTER_ADDR}" \
       --master_port "${MASTER_PORT}" \
 {%- endif %}
-      {{ megatron_path }}/{{ training_script }} \
+      ${MEGATRON_PATH}/{{ training_script }} \
       {{ training_args_lines | join(" \\\n      ") }} > /dev/null 2>&1
 fi
 '
