@@ -213,7 +213,11 @@ class SlurmBackend:
             return "slurm_tasks.sh.j2"
         return "slurm.sh.j2"
 
-    def render(self, experiment: Experiment) -> str:
+    def render(
+        self,
+        experiment: Experiment,
+        generated_data_args_path: str | Path | None = None,
+    ) -> str:
         """Render the Jinja2 template for a single experiment. Returns the script string."""
         env = Environment(
             loader=FileSystemLoader(str(_TEMPLATES_DIR)),
@@ -223,23 +227,54 @@ class SlurmBackend:
         tmpl = env.get_template(self._template_name())
 
         d = experiment.to_dict()
-        d["training_args_lines"] = self._format_training_args_lines(d.get("training_args") or [])
-        # Resolve base_data_path → data_path at render time so the script embeds literal paths.
-        if not d.get("data_path") and d.get("base_data_path"):
-            prefixes = create_data_prefix([d["base_data_path"]])
+        # Explicit data_path wins over data_args_path, which wins over discovery.
+        if d.get("data_path") and d.get("data_args_path"):
+            d["training_args"] = self._remove_training_arg(
+                d.get("training_args") or [], "--data-args-path"
+            )
+            d["data_args_path"] = ""
+        elif (
+            not d.get("data_path")
+            and not d.get("data_args_path")
+            and d.get("base_data_path")
+        ):
+            paths = [
+                path.strip()
+                for path in d["base_data_path"].split(",")
+                if path.strip()
+            ]
+            prefixes = create_data_prefix(
+                paths, follow_symlinks=bool(d.get("follow_symlinks"))
+            )
             if not prefixes:
                 warnings.warn(
                     f"[{experiment.name}] base_data_path '{d['base_data_path']}' "
-                    "resolved to zero dataset shards — DATA_PATH will be empty.",
+                    "resolved to zero dataset shards — no data path will be configured.",
                     stacklevel=2,
                 )
-            d["data_path"] = " ".join(prefixes) # NOTE: Removed the 1.0 weighting, as this makes every shard have same weight so it can cause epoch creations
-        elif not d.get("data_path"):
+            elif generated_data_args_path is not None:
+                manifest_path = Path(generated_data_args_path).resolve()
+                manifest_path.parent.mkdir(parents=True, exist_ok=True)
+                manifest_path.write_text("\n".join(prefixes) + "\n")
+                d["data_args_path"] = str(manifest_path)
+                d["training_args"] = [
+                    *(d.get("training_args") or []),
+                    "--data-args-path",
+                    str(manifest_path),
+                ]
+            else:
+                # Direct render() calls have no output directory for a companion
+                # manifest, so preserve the legacy inline behavior.
+                d["data_path"] = " ".join(prefixes)
+        elif not d.get("data_path") and not d.get("data_args_path"):
             warnings.warn(
-                f"[{experiment.name}] Neither data_path nor base_data_path is set — "
-                "DATA_PATH will be empty in the generated script.",
+                f"[{experiment.name}] Neither data_path, data_args_path, nor "
+                "base_data_path is set — no data path will be configured.",
                 stacklevel=2,
             )
+        d["training_args_lines"] = self._format_training_args_lines(
+            d.get("training_args") or []
+        )
         # Backend env vars are infrastructure defaults; experiment env_vars override them.
         d["env_vars"] = {**self.env_vars, **(d.get("env_vars") or {})}
         d["env_vars"].setdefault("MEGATRON_PATH", d.get("megatron_path") or "")
@@ -302,6 +337,15 @@ class SlurmBackend:
         }
         return tmpl.render(ctx)
 
+    @staticmethod
+    def _remove_training_arg(args: list[str], flag: str) -> list[str]:
+        """Remove a flag and its following value from a flat CLI argument list."""
+        try:
+            index = args.index(flag)
+        except ValueError:
+            return args
+        return args[:index] + args[index + 2 :]
+
     def render_all(
         self,
         sweep_name: str,
@@ -319,7 +363,18 @@ class SlurmBackend:
         paths = []
         rows = []
         for exp in experiments:
-            script = self.render(exp)
+            exp_dict = exp.to_dict()
+            generated_data_args_path = None
+            if (
+                not self.no_save
+                and exp_dict.get("base_data_path")
+                and not exp_dict.get("data_path")
+                and not exp_dict.get("data_args_path")
+            ):
+                generated_data_args_path = out / f"{exp.name}.data_args.txt"
+            script = self.render(
+                exp, generated_data_args_path=generated_data_args_path
+            )
             path = out / f"{exp.name}.sh"
             if self.no_save:
                 print(f"# --- {path} (no_save, not written) ---")

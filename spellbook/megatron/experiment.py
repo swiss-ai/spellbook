@@ -168,12 +168,16 @@ class MegatronExperiment(Experiment):
     no_load_rng: bool = False
 
     # --- Data ---
-    # Set base_data_path to auto-discover all .bin shards (equal weight 1.0 each).
+    # Set base_data_path to auto-discover all .bin shards and generate a
+    # data-args-path manifest next to the rendered job script.
     # Set data_path directly to override with an explicit weighted string, e.g.:
     #   "1.0 /path/a 2.0 /path/b"
-    # If both are set, data_path takes precedence.
+    # Set data_args_path to use an existing manifest instead.
+    # Explicit data_path takes precedence, followed by data_args_path.
     base_data_path: str = ""   # comma-separated dirs; shards found via create_data_config.py
+    follow_symlinks: bool = False
     data_path: str = ""        # explicit weighted data-path string (passed as-is to Megatron)
+    data_args_path: str = ""   # existing Megatron data-path manifest
     tokenizer_type: str = "HuggingFaceTokenizer"
     tokenizer_model: str = ""
     split: str = "100,0,0"

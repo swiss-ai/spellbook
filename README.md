@@ -199,6 +199,9 @@ Important fields:
 - `reservation`: added to sbatch header and sbatch invocation.
 - `MegatronExperiment.pre_launch_commands`: raw shell commands inserted into `slurm.sh.j2` before the main training `srun`. Use this for setup that needs to run once per job, including a separate one-task setup `srun`.
 - `MegatronExperiment.install_commands`: raw shell commands inserted inside `slurm.sh.j2` before data path setup and training launch. Use this for per-experiment package installation.
+- `MegatronExperiment.base_data_path`: comma-separated dataset roots whose `.bin` shards are discovered at render time. Saved renders write the sorted shard prefixes to `<experiment>.data_args.txt` next to the job script and pass it with `--data-args-path`.
+- `MegatronExperiment.follow_symlinks`: follow symlinked directories during `base_data_path` discovery. It defaults to `False`; enable it for layouts whose shard directories are symlinks.
+- `MegatronExperiment.data_args_path`: use an existing Megatron data-path manifest without discovery. Configuring it suppresses the missing-data warning. Explicit `data_path` takes precedence over `data_args_path`, and `data_args_path` takes precedence over `base_data_path`.
 - `MegatronEvalConfig.install_commands`: raw shell commands run once per node inside the eval `srun` shell before `lm_eval` starts; sibling ranks wait for the local install to finish. Use this for per-eval package installation.
 
 `srun_extra_args` is not the same as `extra`.

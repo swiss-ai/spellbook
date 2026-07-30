@@ -55,6 +55,7 @@ _SKIP = frozenset({
     "edp",
     # Data path resolution — handled by the template via create_data_config.py
     "base_data_path",
+    "follow_symlinks",
     "data_path",
     # nsys fields — handled by the template, not Megatron (except profile_step_start/end/ranks
     # which are also passed as --profile-step-start etc. but via the template block)
