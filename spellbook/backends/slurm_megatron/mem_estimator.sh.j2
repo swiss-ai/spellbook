@@ -31,7 +31,7 @@ srun \
   -A {{ account }} \
   {{ srun_extra_args }} \
   -u bash -c '
-export MEGATRON_PATH="${MEGATRON_PATH:-{{ megatron_path }}}"
+{% include "megatron_copy.sh.j2" %}
 export PYTHONPATH="${MEGATRON_PATH}:{{ pythonpath }}:${PYTHONPATH:-}"
 {% for key, value in env_vars.items() %}
 {%- if key != "MEGATRON_PATH" %}

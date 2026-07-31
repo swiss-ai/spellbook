@@ -80,8 +80,9 @@ srun \
 set -x
 ulimit -c 0
 
+{% include "megatron_copy.sh.j2" %}
+
 # Re-export inside srun in case the container does not preserve sbatch exports
-export MEGATRON_PATH="${MEGATRON_PATH:-{{ megatron_path }}}"
 export PYTHONPATH="${MEGATRON_PATH}:{% for var in pythonpath_env_vars %}{{ '${' ~ var ~ '}' }}:{% endfor %}${PYTHONPATH:-}"
 {% for key, value in env_vars.items() %}
 {%- if key != "MEGATRON_PATH" %}

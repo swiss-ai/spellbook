@@ -193,7 +193,7 @@ sweep = sweep_grid(
 - `mem_estimator=True`: render `mem_estimator.sh.j2`.
 
 Important fields:
-- `MegatronExperiment.megatron_path`: a local checkout or Git URL. URL sources are cloned once under `${SCRATCH}/tmp/megatron_repos`; an optional `megatron_commit` is checked out as a locked worktree under `${SCRATCH}/tmp`.
+- `MegatronExperiment.megatron_path`: a local checkout or Git URL. URL sources are cloned once under `${SCRATCH}/tmp/megatron_repos`; an optional `megatron_commit` is checked out as a locked worktree under `${SCRATCH}/tmp`. The selected checkout is always copied into the container at `/opt/megatron` before Megatron starts, and `MEGATRON_PATH` points to that copy.
 - `extra`: generic Jinja template context (for example `container_edf`, `container_mounts`).
 - In `launch_mode="tasks"`, `extra` may also include `cpus_per_task`, `mem`, `no_requeue`, or raw `sbatch_extra_lines`.
 - `srun_extra_args`: extra raw flags inserted into every `srun` command. If this includes `--network=VALUE`, Spellbook also exports `SLURM_NETWORK=VALUE` before `srun` so the step inherits the same network setting.
@@ -203,6 +203,7 @@ Important fields:
 - `MegatronExperiment.base_data_path`: comma-separated dataset roots whose `.bin` shards are discovered at render time. Saved renders write the sorted shard prefixes to `<experiment>.data_args.txt` next to the job script and pass it with `--data-args-path`.
 - `MegatronExperiment.follow_symlinks`: follow symlinked directories during `base_data_path` discovery. It defaults to `False`; enable it for layouts whose shard directories are symlinks.
 - `MegatronExperiment.data_args_path`: use an existing Megatron data-path manifest without discovery. Configuring it suppresses the missing-data warning. Explicit `data_path` takes precedence over `data_args_path`, and `data_args_path` takes precedence over `base_data_path`.
+- `MegatronEvalConfig.megatron_path`: uses the same container-local `/opt` copy behavior for evaluation jobs.
 - `MegatronEvalConfig.install_commands`: raw shell commands run once per node inside the eval `srun` shell before `lm_eval` starts; sibling ranks wait for the local install to finish. Use this for per-eval package installation.
 
 `srun_extra_args` is not the same as `extra`.

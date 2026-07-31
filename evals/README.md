@@ -56,7 +56,9 @@ submit(cfg, ckpt_step=3000)
 such as `https://github.com/NVIDIA/Megatron-LM.git`. A URL is cloned once into a
 deterministic cache below `${SCRATCH}/tmp/megatron_repos`; concurrent eval jobs
 using the same URL share the cached clone. Set `megatron_commit` to evaluate
-against a specific commit from either a local checkout or a cloned URL.
+against a specific commit from either a local checkout or a cloned URL. The
+resolved checkout is copied into each node's container at `/opt/megatron` before
+evaluation starts, and `MEGATRON_PATH` points to that private copy.
 
 Set `MegatronEvalConfig.srun_extra_args` to raw flags that should be appended to
 the eval `srun` command. For example,

@@ -108,7 +108,43 @@ export MASTER_ADDR="${MASTER_ADDR}"
 export MASTER_PORT="${MASTER_PORT}"
 
 {% endif %}
-export MEGATRON_PATH="${MEGATRON_PATH}"
+
+# Container filesystems are shared by tasks on the same node. Copy from one
+# local rank and make the other local ranks wait before importing Megatron.
+MEGATRON_SOURCE_PATH="${MEGATRON_PATH}"
+MEGATRON_DIR_NAME="$(basename "${MEGATRON_SOURCE_PATH}")"
+if [[ -z "${MEGATRON_SOURCE_PATH}" ||
+      "${MEGATRON_DIR_NAME}" == "." ||
+      "${MEGATRON_DIR_NAME}" == ".." ||
+      "${MEGATRON_DIR_NAME}" == "/" ]]; then
+  echo "Cannot copy unsafe Megatron source path: ${MEGATRON_SOURCE_PATH}" >&2
+  exit 1
+fi
+MEGATRON_CONTAINER_PATH="/opt/megatron"
+MEGATRON_COPY_STATUS="/tmp/spellbook-megatron-copy-${SLURM_JOB_ID:-0}-${SLURM_STEP_ID:-0}.status"
+if [[ "${SLURM_LOCALID:-0}" == "0" ]]; then
+  if [[ "${MEGATRON_SOURCE_PATH}" == "${MEGATRON_CONTAINER_PATH}" ]]; then
+    MEGATRON_COPY_RC=0
+  elif rm -rf "${MEGATRON_CONTAINER_PATH}" &&
+       cp -a "${MEGATRON_SOURCE_PATH}" "${MEGATRON_CONTAINER_PATH}"; then
+    MEGATRON_COPY_RC=0
+  else
+    MEGATRON_COPY_RC=$?
+  fi
+  printf "%s\n" "${MEGATRON_COPY_RC}" > "${MEGATRON_COPY_STATUS}.tmp"
+  mv -f "${MEGATRON_COPY_STATUS}.tmp" "${MEGATRON_COPY_STATUS}"
+else
+  while [[ ! -f "${MEGATRON_COPY_STATUS}" ]]; do
+    sleep 1
+  done
+  MEGATRON_COPY_RC="$(<"${MEGATRON_COPY_STATUS}")"
+fi
+if [[ "${MEGATRON_COPY_RC}" != "0" ]]; then
+  echo "Copying Megatron into the container failed on $(hostname) with exit code ${MEGATRON_COPY_RC}" >&2
+  exit "${MEGATRON_COPY_RC}"
+fi
+export MEGATRON_PATH="${MEGATRON_CONTAINER_PATH}"
+
 export PYTHONPATH="${MEGATRON_PATH}:${PYTHONPATH:-}"
 
 export NVTE_ALLOW_NONDETERMINISTIC_ALGO="1"
