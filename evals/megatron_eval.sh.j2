@@ -126,7 +126,8 @@ if [[ "${SLURM_LOCALID:-0}" == "0" ]]; then
   if [[ "${MEGATRON_SOURCE_PATH}" == "${MEGATRON_CONTAINER_PATH}" ]]; then
     MEGATRON_COPY_RC=0
   elif rm -rf "${MEGATRON_CONTAINER_PATH}" &&
-       cp -a "${MEGATRON_SOURCE_PATH}" "${MEGATRON_CONTAINER_PATH}"; then
+       cp -R --no-preserve=all \
+         "${MEGATRON_SOURCE_PATH}" "${MEGATRON_CONTAINER_PATH}"; then
     MEGATRON_COPY_RC=0
   else
     MEGATRON_COPY_RC=$?
