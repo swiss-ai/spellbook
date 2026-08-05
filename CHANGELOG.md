@@ -4,6 +4,8 @@ Notable changes to Spellbook are documented here.
 
 ## Unreleased
 
+## 0.2.0 - 2026-08-06
+
 ### Added
 
 - A packaged Megatron-LM evaluation runner built around lm-evaluation-harness,
