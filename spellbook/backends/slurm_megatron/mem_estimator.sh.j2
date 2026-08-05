@@ -31,7 +31,9 @@ srun \
   -A {{ account }} \
   {{ srun_extra_args }} \
   -u bash -c '
+{% if container_edf is defined and container_edf %}
 {% include "megatron_copy.sh.j2" %}
+{% endif %}
 export PYTHONPATH="${MEGATRON_PATH}:{{ pythonpath }}:${PYTHONPATH:-}"
 {% for key, value in env_vars.items() %}
 {%- if key != "MEGATRON_PATH" %}

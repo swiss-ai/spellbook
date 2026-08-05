@@ -124,7 +124,7 @@ def cmd_list(args: argparse.Namespace) -> None:
     header = "".join(header_parts)
 
     print(f"\nSweep: {sweep.name}  ({len(exps)} experiments)")
-    print(f"  (* = differs across experiments)\n")
+    print("  (* = differs across experiments)\n")
     print(header)
     print("-" * len(header))
     for exp in exps:

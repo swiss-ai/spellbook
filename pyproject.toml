@@ -18,3 +18,9 @@ include = ["spellbook*", "evals*"]
 [tool.setuptools.package-data]
 evals = ["*.j2", "README.md"]
 "spellbook.backends.slurm_megatron" = ["*.j2"]
+
+[tool.ruff]
+extend-exclude = ["spellbook/backends/slurm_megatron/memory_estimator"]
+
+[tool.ty.src]
+exclude = ["spellbook/backends/slurm_megatron/memory_estimator"]

@@ -1,6 +1,7 @@
 # --- Megatron checkout ---
+MEGATRON_CACHE_ROOT="${SCRATCH:-${TMPDIR:-/tmp}/spellbook-${USER:-$(id -u)}}/tmp"
 {% if megatron_url %}
-MEGATRON_REPO_PATH="${SCRATCH}/tmp/megatron_repos/{{ megatron_cache_key }}"
+MEGATRON_REPO_PATH="${MEGATRON_CACHE_ROOT}/megatron_repos/{{ megatron_cache_key }}"
 mkdir -p "$(dirname "${MEGATRON_REPO_PATH}")"
 (
   flock -x 9
@@ -8,21 +9,45 @@ mkdir -p "$(dirname "${MEGATRON_REPO_PATH}")"
     echo "Cloning Megatron-LM from {{ megatron_url }}"
     git clone "{{ megatron_url }}" "${MEGATRON_REPO_PATH}"
   fi
+  echo "Refreshing cached Megatron-LM repository"
+  git -C "${MEGATRON_REPO_PATH}" fetch origin --tags --prune
 ) 9>"${MEGATRON_REPO_PATH}.lock"
 MEGATRON_SOURCE_PATH="${MEGATRON_REPO_PATH}"
 {% else %}
 MEGATRON_SOURCE_PATH="{{ megatron_path }}"
 {% endif %}
 
-# --- Optional Megatron worktree pin ---
+# URL sources always use a worktree so an unpinned URL can follow the refreshed
+# remote default branch without mutating the shared clone checkout.
+{% if megatron_commit or megatron_url %}
 {% if megatron_commit %}
-MEGATRON_WORKTREE_PATH="${SCRATCH}/tmp/megatron_worktree_{{ megatron_commit }}"
+MEGATRON_REQUESTED_REF="{{ megatron_commit }}"
+{% if megatron_url %}
+if git -C "${MEGATRON_SOURCE_PATH}" rev-parse --verify     "refs/remotes/origin/${MEGATRON_REQUESTED_REF}^{commit}" >/dev/null 2>&1; then
+  MEGATRON_REQUESTED_REF="refs/remotes/origin/${MEGATRON_REQUESTED_REF}"
+fi
+{% endif %}
+{% else %}
+MEGATRON_REQUESTED_REF="refs/remotes/origin/HEAD"
+{% endif %}
+if ! MEGATRON_TARGET_COMMIT="$(git -C "${MEGATRON_SOURCE_PATH}" rev-parse --verify "${MEGATRON_REQUESTED_REF}^{commit}")"; then
+  echo "Cannot resolve Megatron ref ${MEGATRON_REQUESTED_REF} in ${MEGATRON_SOURCE_PATH}" >&2
+  exit 1
+fi
+MEGATRON_WORKTREE_PATH="${MEGATRON_CACHE_ROOT}/megatron_worktrees/{{ megatron_worktree_key }}"
 mkdir -p "$(dirname "${MEGATRON_WORKTREE_PATH}")"
 (
   flock -x 9
+  if [[ -d "${MEGATRON_WORKTREE_PATH}" ]]; then
+    MEGATRON_WORKTREE_COMMIT="$(git -C "${MEGATRON_WORKTREE_PATH}" rev-parse HEAD 2>/dev/null || true)"
+    if [[ "${MEGATRON_WORKTREE_COMMIT}" != "${MEGATRON_TARGET_COMMIT}" ]]; then
+      git -C "${MEGATRON_SOURCE_PATH}" worktree remove --force "${MEGATRON_WORKTREE_PATH}" 2>/dev/null ||
+        rm -rf "${MEGATRON_WORKTREE_PATH}"
+    fi
+  fi
   if [[ ! -d "${MEGATRON_WORKTREE_PATH}" ]]; then
-    echo "Creating Megatron-LM worktree at commit {{ megatron_commit }}"
-    git -C "${MEGATRON_SOURCE_PATH}" worktree add "${MEGATRON_WORKTREE_PATH}" "{{ megatron_commit }}"
+    echo "Creating Megatron-LM worktree at commit ${MEGATRON_TARGET_COMMIT}"
+    git -C "${MEGATRON_SOURCE_PATH}" worktree add --detach       "${MEGATRON_WORKTREE_PATH}" "${MEGATRON_TARGET_COMMIT}"
   fi
 ) 9>"${MEGATRON_WORKTREE_PATH}.lock"
 export MEGATRON_PATH="${MEGATRON_WORKTREE_PATH}"

@@ -26,3 +26,11 @@ nsys/
 experiments/*
 !experiments/big_moe_speed_ablations_example/
 !experiments/data/
+
+# Evaluation runtime artifacts
+evals/**/results_*.json
+evals/**/samples_*.jsonl
+evals/**/.submitted_steps
+evals/**/.watcher_stop
+evals/**/.spellbook-*.status
+evals/*/watcher.sh

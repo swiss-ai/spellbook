@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import subprocess
 import tempfile
 import warnings
@@ -239,6 +240,18 @@ class SlurmBackend:
         tmpl = env.get_template(self._template_name())
 
         d = experiment.to_dict()
+        container_path = str(d.get("megatron_container_path") or "").rstrip("/")
+        if (
+            not container_path.startswith("/")
+            or container_path == ""
+            or ".." in container_path.split("/")
+            or re.fullmatch(r"/[A-Za-z0-9_./-]+", container_path) is None
+            or len([part for part in container_path.split("/") if part]) < 2
+        ):
+            raise ValueError(
+                "MegatronExperiment.megatron_container_path must be a shell-safe absolute path with at least two components"
+            )
+        d["megatron_container_path"] = container_path
         megatron_source = str(d.get("megatron_path") or "")
         if _is_megatron_url(megatron_source):
             d["megatron_url"] = megatron_source
@@ -249,6 +262,9 @@ class SlurmBackend:
         else:
             d["megatron_url"] = ""
             d["megatron_cache_key"] = ""
+        d["megatron_worktree_key"] = hashlib.sha256(
+            f"{megatron_source}\0{d.get('megatron_commit') or ''}".encode()
+        ).hexdigest()[:16]
         # Explicit data_path wins over data_args_path, which wins over discovery.
         if d.get("data_path") and d.get("data_args_path"):
             d["training_args"] = self._remove_training_arg(

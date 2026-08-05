@@ -10,7 +10,9 @@ Megatron-LM evaluation runner using [lm-evaluation-harness](https://github.com/E
 | `megatron_eval.sh.j2` | Jinja2 template for the eval sbatch script |
 | `watcher.py` | One-shot checkpoint checker + `start` command for the self-scheduling watcher |
 | `watcher.sh.j2` | Jinja2 template for the self-scheduling watcher sbatch script |
-| `configs/` | Per-model eval configs |
+
+Per-model configs are deployment-specific and should live in the repository that
+owns the experiments and checkpoint paths, rather than in Spellbook itself.
 
 ## Quick start
 
@@ -55,10 +57,14 @@ submit(cfg, ckpt_step=3000)
 `MegatronEvalConfig.megatron_path` accepts either a local checkout or a Git URL
 such as `https://github.com/NVIDIA/Megatron-LM.git`. A URL is cloned once into a
 deterministic cache below `${SCRATCH}/tmp/megatron_repos`; concurrent eval jobs
-using the same URL share the cached clone. Set `megatron_commit` to evaluate
-against a specific commit from either a local checkout or a cloned URL. The
-resolved checkout is copied into each node's container at `/opt/megatron` before
-evaluation starts, and `MEGATRON_PATH` points to that private copy.
+using the same URL share the cached clone. URL caches are refreshed before each
+launch. An unpinned URL follows its remote default branch; `megatron_commit` pins
+a commit or resolves a refreshed remote branch. Source-specific worktree keys
+prevent collisions across repositories. Without `SCRATCH`, caches use a
+user-namespaced directory below `${TMPDIR:-/tmp}`. When `container_edf` is
+configured, the resolved checkout is copied into each node's container at
+`megatron_container_path`, which defaults to `/opt/megatron`; non-container
+launches use the source checkout directly.
 
 Set `MegatronEvalConfig.srun_extra_args` to raw flags that should be appended to
 the eval `srun` command. For example,
@@ -123,6 +129,10 @@ results. Each job writes below
 `<output_dir>/<model_name>/step_<ckpt_step>`. When unset, the base directory is
 `<submission directory>/evals`. Configured relative paths are also converted to
 absolute paths from the directory where the job is rendered and submitted.
+When `dataset_prefetch` is enabled for a multi-node job, `output_dir` must be on
+storage shared by every node because it carries the global completion status.
+`prefetch_timeout_seconds` bounds both the prefetch and peer wait (default: 1800
+seconds), so a missing shared path or failed leader cannot hang indefinitely.
 
 Set `MegatronEvalConfig.log_samples=True` to pass `--log_samples` to lm-eval.
 This saves per-example inputs and model responses as
@@ -172,10 +182,13 @@ This renders `evals/<model_name>/watcher.sh` and submits the first job. Submitte
 ### Stop
 
 ```bash
-scancel <job_id>   # printed when you run start
+uv run python -m evals.watcher stop \
+  --config /path/to/experiments/evals/configs/my_model.py
 ```
 
-Once the running job is cancelled, no future job is scheduled and the chain ends.
+The stop command writes a persistent stop marker before cancelling jobs with the
+watcher's stable Slurm job name. The EXIT trap sees that marker and does not
+schedule a successor. Running `start` again removes the marker.
 
 ### How it works
 
@@ -183,23 +196,19 @@ Once the running job is cancelled, no future job is scheduled and the chain ends
 watcher job runs
   └─ reads latest_checkpointed_iteration.txt
   └─ if step not in .submitted_steps → sbatch eval job, record step
-  └─ trap EXIT → sbatch --begin=now+Nhour watcher.sh  (always re-schedules)
+  └─ trap EXIT → sbatch --begin=now+Nhour watcher.sh
 ```
 
-The `trap EXIT` ensures re-scheduling happens even if the eval submission fails.
+The `trap EXIT` ensures re-scheduling happens even if the eval submission fails,
+unless the persistent stop marker has been created by the `stop` command.
 
 ## Adding a new model
 
-1. Copy an existing config and edit it:
+1. In your experiments repository, create a config module based on the quick-start
+   example above and expose its configuration as a module-level `cfg` variable.
+2. Start the watcher from the Spellbook project, passing the config path:
 
 ```bash
-cp evals/configs/small_100b_cross_doc.py evals/configs/my_model.py
-```
-
-2. Update the `cfg` variable in the new file.
-
-3. Start the watcher:
-
-```bash
-uv run python -m evals.watcher start --config evals/configs/my_model.py
+uv run python -m evals.watcher start \
+  --config /path/to/experiments/evals/configs/my_model.py
 ```

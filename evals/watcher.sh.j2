@@ -14,12 +14,24 @@
 
 set -euo pipefail
 
-MARKER="{{ checkpoint_dir }}/{{ model_name }}/latest_checkpointed_iteration.txt"
-STATE_FILE="{{ project_dir }}/evals/{{ model_name }}/.submitted_steps"
+MARKER="{{ watch_checkpoint_dir }}/latest_checkpointed_iteration.txt"
+STATE_FILE="{{ project_dir }}/evals/state_files/{{ model_name }}/.submitted_steps"
+STOP_FILE="{{ stop_file }}"
 THIS_SCRIPT="{{ watcher_script_path }}"
 
-# Always re-schedule on exit so the chain survives transient failures.
-trap 'sbatch --begin=now+{{ interval_minutes }}minute "$THIS_SCRIPT"' EXIT
+reschedule() {
+    if [[ -f "$STOP_FILE" ]]; then
+        echo "[$(date -Is)] Stop requested — watcher will not be rescheduled."
+        return
+    fi
+    sbatch --begin=now+{{ interval_minutes }}minute "$THIS_SCRIPT"
+}
+trap reschedule EXIT
+
+if [[ -f "$STOP_FILE" ]]; then
+    echo "[$(date -Is)] Stop requested — exiting."
+    exit 0
+fi
 
 echo "[$(date -Is)] Watcher started"
 

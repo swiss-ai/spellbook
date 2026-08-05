@@ -32,8 +32,15 @@ from evals.megatron_eval import MegatronEvalConfig, render_watcher_script, submi
 def _load_config(config_path: str) -> tuple[MegatronEvalConfig, str | None]:
     path = Path(config_path).resolve()
     spec = importlib.util.spec_from_file_location("_eval_config", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load eval config from {path}")
     mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
+    config_dir = str(path.parent)
+    sys.path.insert(0, config_dir)
+    try:
+        spec.loader.exec_module(mod)
+    finally:
+        sys.path.remove(config_dir)
     cfg = getattr(mod, "cfg", None)
     if not isinstance(cfg, MegatronEvalConfig):
         print(f"ERROR: {config_path} must define a module-level `cfg: MegatronEvalConfig`")
@@ -58,7 +65,11 @@ def _state_file(cfg: MegatronEvalConfig) -> Path:
 def _submitted_steps(state: Path) -> set[int]:
     if not state.exists():
         return set()
-    return {int(l.strip()) for l in state.read_text().splitlines() if l.strip().isdigit()}
+    return {
+        int(line.strip())
+        for line in state.read_text().splitlines()
+        if line.strip().isdigit()
+    }
 
 
 def _record_step(state: Path, step: int) -> None:
@@ -93,14 +104,21 @@ def cmd_check(args: argparse.Namespace) -> None:
     _record_step(state, latest)
 
 
+def _watcher_stop_file(cfg: MegatronEvalConfig, project_dir: Path) -> Path:
+    return project_dir / "evals" / "state_files" / cfg.model_name / ".watcher_stop"
+
+
 def cmd_start(args: argparse.Namespace) -> None:
-    cfg, _ = _load_config(args.config)
+    cfg, watch_dir_override = _load_config(args.config)
     project_dir = Path(__file__).resolve().parent.parent
+    stop_file = _watcher_stop_file(cfg, project_dir)
+    stop_file.unlink(missing_ok=True)
     script_path = render_watcher_script(
         cfg,
         config_path=args.config,
         interval_hours=args.interval,
         project_dir=project_dir,
+        watch_checkpoint_dir=watch_dir_override,
     )
     result = subprocess.run(
         ["sbatch", str(script_path)],
@@ -111,7 +129,25 @@ def cmd_start(args: argparse.Namespace) -> None:
     job_id = result.stdout.strip().split()[-1]
     print(f"Watcher started: job {job_id}")
     print(f"Script saved at: {script_path}")
-    print(f"Re-runs every {round(args.interval * 60)}min. Cancel with: scancel {job_id}")
+    print(f"Re-runs every {round(args.interval * 60)}min.")
+    print(f"Stop with: uv run python -m evals.watcher stop --config {args.config}")
+
+
+def cmd_stop(args: argparse.Namespace) -> None:
+    cfg, _ = _load_config(args.config)
+    project_dir = Path(__file__).resolve().parent.parent
+    stop_file = _watcher_stop_file(cfg, project_dir)
+    stop_file.parent.mkdir(parents=True, exist_ok=True)
+    stop_file.touch()
+    result = subprocess.run(
+        ["scancel", f"--name=watcher_{cfg.model_name}"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        print(result.stderr.strip(), file=sys.stderr)
+    print(f"Watcher stop requested for {cfg.model_name}.")
 
 
 def main() -> None:
@@ -123,14 +159,26 @@ def main() -> None:
     parser.add_argument("--step", type=int, default=None, help="Submit this specific step (skips state-file check)")
 
     # start: render watcher.sh and submit the chain
-    p_start = sub.add_parser("start", help="Render watcher.sh and submit the self-scheduling sbatch chain")
+    p_start = sub.add_parser(
+        "start", help="Render watcher.sh and submit the self-scheduling sbatch chain"
+    )
     p_start.add_argument("--config", required=True, help="Path to eval config .py file")
-    p_start.add_argument("--interval", type=float, default=1, help="Hours between watcher runs, accepts decimals e.g. 0.5 (default: 1)")
+    p_start.add_argument(
+        "--interval",
+        type=float,
+        default=1,
+        help="Hours between watcher runs, accepts decimals e.g. 0.5 (default: 1)",
+    )
+
+    p_stop = sub.add_parser("stop", help="Stop a self-scheduling watcher chain")
+    p_stop.add_argument("--config", required=True, help="Path to eval config .py file")
 
     args = parser.parse_args()
 
     if args.command == "start":
         cmd_start(args)
+    elif args.command == "stop":
+        cmd_stop(args)
     else:
         if not args.config:
             parser.error("--config is required")

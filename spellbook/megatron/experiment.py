@@ -36,6 +36,7 @@ class MegatronExperiment(Experiment):
     # --- Megatron path ---
     megatron_path: str = ""  # local checkout or git/http/https/ssh repository URL
     megatron_commit: str = ""  # if set, a git worktree is created at this commit and used instead
+    megatron_container_path: str = "/opt/megatron"
     training_script: str = "pretrain_gpt.py"
     pre_launch_commands: str = ""  # raw shell commands rendered before the main srun launch
     install_commands: str = ""  # raw shell commands rendered before training, e.g. pip install ...

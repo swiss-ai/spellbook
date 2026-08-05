@@ -193,7 +193,8 @@ sweep = sweep_grid(
 - `mem_estimator=True`: render `mem_estimator.sh.j2`.
 
 Important fields:
-- `MegatronExperiment.megatron_path`: a local checkout or Git URL. URL sources are cloned once under `${SCRATCH}/tmp/megatron_repos`; an optional `megatron_commit` is checked out as a locked worktree under `${SCRATCH}/tmp`. The selected checkout is always copied into the container at `/opt/megatron` before Megatron starts, and `MEGATRON_PATH` points to that copy.
+- `MegatronExperiment.megatron_path`: a local checkout or Git URL. URL caches are refreshed under `${SCRATCH}/tmp/megatron_repos` before each launch; unpinned URLs follow the remote default branch, while `megatron_commit` pins a commit or resolves a refreshed remote branch. Runs use source-specific locked worktrees under `${SCRATCH}/tmp/megatron_worktrees`. Without `SCRATCH`, the cache falls back below the user-namespaced `${TMPDIR:-/tmp}/spellbook-$USER` directory. When `container_edf` is configured, the selected checkout is copied into the container at `/opt/megatron` before Megatron starts; non-container launches use the source checkout directly.
+- `MegatronExperiment.megatron_container_path`: writable destination for that container copy. It defaults to `/opt/megatron` and must be a shell-safe absolute path with at least two components.
 - `extra`: generic Jinja template context (for example `container_edf`, `container_mounts`).
 - In `launch_mode="tasks"`, `extra` may also include `cpus_per_task`, `mem`, `no_requeue`, or raw `sbatch_extra_lines`.
 - `srun_extra_args`: extra raw flags inserted into every `srun` command. If this includes `--network=VALUE`, Spellbook also exports `SLURM_NETWORK=VALUE` before `srun` so the step inherits the same network setting.
@@ -295,6 +296,11 @@ main.py
 
 ```bash
 uv sync
+uv run python -m unittest discover -v
 uv run ruff check .
 uv run ty check
 ```
+
+The optional Megatron-dependent memory-estimator subtree is excluded from local
+Ruff and ty checks because its imports are supplied only by the runtime Megatron
+environment.

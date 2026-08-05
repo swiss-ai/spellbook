@@ -65,7 +65,9 @@ ulimit -c 0
 export LOCAL_RANK=${SLURM_LOCALID}
 export RANK="${SLURM_PROCID}"
 
+{% if container_edf is defined and container_edf %}
 {% include "megatron_copy.sh.j2" %}
+{% endif %}
 
 # Re-export paths inside container
 export PYTHONPATH="${MEGATRON_PATH}:{{ pythonpath }}:${PYTHONPATH:-}"

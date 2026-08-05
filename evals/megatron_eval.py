@@ -17,6 +17,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import os
+import re
 import subprocess
 import tempfile
 from collections.abc import Mapping
@@ -49,6 +50,7 @@ class MegatronEvalConfig:
     # --- Megatron ---
     megatron_path: str               # local path or Git URL for the Megatron-LM repo
     megatron_commit: str = ""        # if set, a git worktree is pinned to this commit
+    megatron_container_path: str = "/opt/megatron"
 
     # --- Eval ---
     tasks: list[str] = dataclasses.field(default_factory=list, metadata=_LM_EVAL_ARG)
@@ -99,6 +101,7 @@ class MegatronEvalConfig:
     #   {"hellaswag": ["hellaswag"], "arc_easy": ["ai2_arc", "ARC-Easy"]}
     # Rank 0 will prefetch all listed datasets before the eval loop.
     dataset_prefetch: dict[str, list[str]] = dataclasses.field(default_factory=dict)
+    prefetch_timeout_seconds: int = 1800
 
     # --- Extra env vars ---
     # Exported inside the srun shell, after the hardcoded defaults.
@@ -158,6 +161,19 @@ def _render(cfg: MegatronEvalConfig, ckpt_step: int, dependency_singleton: bool)
             f"Unsupported MegatronEvalConfig.launch_mode={cfg.launch_mode!r}; "
             "expected 'torchrun' or 'tasks'."
         )
+    container_path = cfg.megatron_container_path.rstrip("/")
+    if (
+        not container_path.startswith("/")
+        or container_path == ""
+        or ".." in container_path.split("/")
+        or re.fullmatch(r"/[A-Za-z0-9_./-]+", container_path) is None
+        or len([part for part in container_path.split("/") if part]) < 2
+    ):
+        raise ValueError(
+            "MegatronEvalConfig.megatron_container_path must be a shell-safe absolute path with at least two components"
+        )
+    if cfg.prefetch_timeout_seconds <= 0:
+        raise ValueError("prefetch_timeout_seconds must be greater than zero")
 
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),
@@ -166,6 +182,7 @@ def _render(cfg: MegatronEvalConfig, ckpt_step: int, dependency_singleton: bool)
     )
     tmpl = env.get_template("megatron_eval.sh.j2")
     ctx = dataclasses.asdict(cfg)
+    ctx["megatron_container_path"] = container_path
     if _is_megatron_url(cfg.megatron_path):
         ctx["megatron_url"] = cfg.megatron_path
         ctx["megatron_path"] = ""
@@ -175,6 +192,9 @@ def _render(cfg: MegatronEvalConfig, ckpt_step: int, dependency_singleton: bool)
     else:
         ctx["megatron_url"] = ""
         ctx["megatron_cache_key"] = ""
+    ctx["megatron_worktree_key"] = hashlib.sha256(
+        f"{cfg.megatron_path}\0{cfg.megatron_commit}".encode()
+    ).hexdigest()[:16]
     ctx["ckpt_step"] = ckpt_step
     ctx["date"] = datetime.now().strftime("%Y-%m-%d")
     ctx["dependency_singleton"] = dependency_singleton
@@ -221,13 +241,20 @@ def render_watcher_script(
     config_path: str,
     interval_hours: float = 1,
     project_dir: Path | None = None,
+    watch_checkpoint_dir: str | None = None,
 ) -> Path:
     """Render evals/<model>/watcher.sh — the self-scheduling sbatch watcher."""
+    if interval_hours <= 0:
+        raise ValueError("interval_hours must be greater than zero")
     if project_dir is None:
         project_dir = Path(__file__).resolve().parent.parent
     output_dir = project_dir / "evals" / cfg.model_name
     output_dir.mkdir(parents=True, exist_ok=True)
     script_path = output_dir / "watcher.sh"
+    log_dir = Path(cfg.log_dir).expanduser()
+    if not log_dir.is_absolute():
+        log_dir = project_dir / log_dir
+    (log_dir / cfg.model_name).mkdir(parents=True, exist_ok=True)
 
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),
@@ -235,13 +262,20 @@ def render_watcher_script(
         keep_trailing_newline=True,
     )
     tmpl = env.get_template("watcher.sh.j2")
+    checkpoint_dir = (
+        Path(watch_checkpoint_dir).expanduser()
+        if watch_checkpoint_dir
+        else Path(cfg.checkpoint_dir).expanduser() / cfg.model_name
+    )
+    stop_file = project_dir / "evals" / "state_files" / cfg.model_name / ".watcher_stop"
     ctx = {
         "model_name": cfg.model_name,
         "account": cfg.account,
         "partition": cfg.partition,
-        "log_dir": cfg.log_dir,
+        "log_dir": str(log_dir.resolve()),
         "reservation": cfg.reservation,
-        "checkpoint_dir": cfg.checkpoint_dir,
+        "watch_checkpoint_dir": str(checkpoint_dir),
+        "stop_file": str(stop_file),
         "config_path": str(Path(config_path).resolve()),
         "project_dir": str(project_dir),
         "watcher_script_path": str(script_path),
@@ -254,6 +288,9 @@ def render_watcher_script(
 
 def submit(cfg: MegatronEvalConfig, ckpt_step: int, dependency_singleton: bool = False) -> str:
     """Render and submit a single eval job. Returns the Slurm job ID."""
+    (Path(cfg.log_dir).expanduser() / cfg.model_name).mkdir(
+        parents=True, exist_ok=True
+    )
     script = _render(cfg, ckpt_step, dependency_singleton)
     job_id = _sbatch(script, cfg.reservation, cfg.exclude)
     print(f"  {cfg.model_name} step={ckpt_step}: submitted → job {job_id}")

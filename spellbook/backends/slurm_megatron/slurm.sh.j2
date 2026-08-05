@@ -25,7 +25,7 @@ export RANK="${SLURM_PROCID}"
 export GPUS_PER_NODE="${SLURM_GPUS_ON_NODE}"
 export HOSTNAMES="$(scontrol show hostnames "$SLURM_JOB_NODELIST")"
 export MASTER_ADDR="$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)"
-export MASTER_PORT=6800
+export MASTER_PORT="${MASTER_PORT:-6800}"
 export WORLD_SIZE="$(scontrol show hostnames "$SLURM_JOB_NODELIST" | wc -l)"
 export SLURM_JOB_ID="${SLURM_JOB_ID}"
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
@@ -80,7 +80,9 @@ srun \
 set -x
 ulimit -c 0
 
+{% if container_edf is defined and container_edf %}
 {% include "megatron_copy.sh.j2" %}
+{% endif %}
 
 # Re-export inside srun in case the container does not preserve sbatch exports
 export PYTHONPATH="${MEGATRON_PATH}:{% for var in pythonpath_env_vars %}{{ '${' ~ var ~ '}' }}:{% endfor %}${PYTHONPATH:-}"

@@ -8,7 +8,18 @@ if [[ -z "${MEGATRON_SOURCE_PATH}" ||
   echo "Cannot copy unsafe Megatron source path: ${MEGATRON_SOURCE_PATH}" >&2
   exit 1
 fi
-MEGATRON_CONTAINER_PATH="/opt/megatron"
+MEGATRON_CONTAINER_PATH="{{ megatron_container_path }}"
+if ! MEGATRON_SOURCE_REAL="$(realpath -e "${MEGATRON_SOURCE_PATH}")"; then
+  echo "Megatron source path does not exist: ${MEGATRON_SOURCE_PATH}" >&2
+  exit 1
+fi
+MEGATRON_CONTAINER_REAL="$(realpath -m "${MEGATRON_CONTAINER_PATH}")"
+if [[ "${MEGATRON_SOURCE_REAL}" != "${MEGATRON_CONTAINER_REAL}" ]] &&
+   { [[ "${MEGATRON_SOURCE_REAL}/" == "${MEGATRON_CONTAINER_REAL}/"* ]] ||
+     [[ "${MEGATRON_CONTAINER_REAL}/" == "${MEGATRON_SOURCE_REAL}/"* ]]; }; then
+  echo "Megatron source and container destination must not contain one another" >&2
+  exit 1
+fi
 MEGATRON_COPY_STATUS="/tmp/spellbook-megatron-copy-${SLURM_JOB_ID:-0}-${SLURM_STEP_ID:-0}.status"
 if [[ "${SLURM_LOCALID:-0}" == "0" ]]; then
   if [[ "${MEGATRON_SOURCE_PATH}" == "${MEGATRON_CONTAINER_PATH}" ]]; then

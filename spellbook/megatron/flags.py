@@ -46,6 +46,7 @@ _SKIP = frozenset({
     # Infra fields handled by the backend, not Megatron CLI
     "megatron_path",
     "megatron_commit",
+    "megatron_container_path",
     "training_script",
     "pre_launch_commands",
     "install_commands",

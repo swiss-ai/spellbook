@@ -21,7 +21,9 @@
 
 set -e
 
-source .env
+if [[ -f ".env" ]]; then
+  source ".env"
+fi
 export HF_TOKEN="${HF_TOKEN}"
 export WANDB_API_KEY="${WANDB_API_KEY}"
 
@@ -34,7 +36,7 @@ export RANK="${SLURM_PROCID}"
 export GPUS_PER_NODE="${SLURM_GPUS_ON_NODE}"
 export HOSTNAMES="$(scontrol show hostnames "$SLURM_JOB_NODELIST")"
 export MASTER_ADDR="$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)"
-export MASTER_PORT=6991
+export MASTER_PORT="${MASTER_PORT:-6991}"
 export WORLD_SIZE="${SLURM_NTASKS:-{{ total_tasks }}}"
 export SLURM_JOB_ID="${SLURM_JOB_ID}"
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
@@ -44,8 +46,9 @@ export MODEL_NAME="{{ model_name }}"
 export CKPT_STEP="{{ ckpt_step }}"
 
 # --- Megatron checkout ---
+MEGATRON_CACHE_ROOT="${SCRATCH:-${TMPDIR:-/tmp}/spellbook-${USER:-$(id -u)}}/tmp"
 {% if megatron_url %}
-MEGATRON_REPO_PATH="${SCRATCH}/tmp/megatron_repos/{{ megatron_cache_key }}"
+MEGATRON_REPO_PATH="${MEGATRON_CACHE_ROOT}/megatron_repos/{{ megatron_cache_key }}"
 mkdir -p "$(dirname "${MEGATRON_REPO_PATH}")"
 (
   flock -x 9
@@ -53,21 +56,45 @@ mkdir -p "$(dirname "${MEGATRON_REPO_PATH}")"
     echo "Cloning Megatron-LM from {{ megatron_url }}"
     git clone "{{ megatron_url }}" "${MEGATRON_REPO_PATH}"
   fi
+  echo "Refreshing cached Megatron-LM repository"
+  git -C "${MEGATRON_REPO_PATH}" fetch origin --tags --prune
 ) 9>"${MEGATRON_REPO_PATH}.lock"
 MEGATRON_SOURCE_PATH="${MEGATRON_REPO_PATH}"
 {% else %}
 MEGATRON_SOURCE_PATH="{{ megatron_path }}"
 {% endif %}
 
-# --- Optional Megatron worktree pin ---
+# URL sources always use a worktree so an unpinned URL can follow the refreshed
+# remote default branch without mutating the shared clone checkout.
+{% if megatron_commit or megatron_url %}
 {% if megatron_commit %}
-MEGATRON_WORKTREE_PATH="${SCRATCH}/tmp/megatron_worktree_{{ megatron_commit }}"
+MEGATRON_REQUESTED_REF="{{ megatron_commit }}"
+{% if megatron_url %}
+if git -C "${MEGATRON_SOURCE_PATH}" rev-parse --verify     "refs/remotes/origin/${MEGATRON_REQUESTED_REF}^{commit}" >/dev/null 2>&1; then
+  MEGATRON_REQUESTED_REF="refs/remotes/origin/${MEGATRON_REQUESTED_REF}"
+fi
+{% endif %}
+{% else %}
+MEGATRON_REQUESTED_REF="refs/remotes/origin/HEAD"
+{% endif %}
+if ! MEGATRON_TARGET_COMMIT="$(git -C "${MEGATRON_SOURCE_PATH}" rev-parse --verify "${MEGATRON_REQUESTED_REF}^{commit}")"; then
+  echo "Cannot resolve Megatron ref ${MEGATRON_REQUESTED_REF} in ${MEGATRON_SOURCE_PATH}" >&2
+  exit 1
+fi
+MEGATRON_WORKTREE_PATH="${MEGATRON_CACHE_ROOT}/megatron_worktrees/{{ megatron_worktree_key }}"
 mkdir -p "$(dirname "${MEGATRON_WORKTREE_PATH}")"
 (
   flock -x 9
+  if [[ -d "${MEGATRON_WORKTREE_PATH}" ]]; then
+    MEGATRON_WORKTREE_COMMIT="$(git -C "${MEGATRON_WORKTREE_PATH}" rev-parse HEAD 2>/dev/null || true)"
+    if [[ "${MEGATRON_WORKTREE_COMMIT}" != "${MEGATRON_TARGET_COMMIT}" ]]; then
+      git -C "${MEGATRON_SOURCE_PATH}" worktree remove --force "${MEGATRON_WORKTREE_PATH}" 2>/dev/null ||
+        rm -rf "${MEGATRON_WORKTREE_PATH}"
+    fi
+  fi
   if [[ ! -d "${MEGATRON_WORKTREE_PATH}" ]]; then
-    echo "Creating Megatron-LM worktree at commit {{ megatron_commit }}"
-    git -C "${MEGATRON_SOURCE_PATH}" worktree add "${MEGATRON_WORKTREE_PATH}" "{{ megatron_commit }}"
+    echo "Creating Megatron-LM worktree at commit ${MEGATRON_TARGET_COMMIT}"
+    git -C "${MEGATRON_SOURCE_PATH}" worktree add --detach       "${MEGATRON_WORKTREE_PATH}" "${MEGATRON_TARGET_COMMIT}"
   fi
 ) 9>"${MEGATRON_WORKTREE_PATH}.lock"
 export MEGATRON_PATH="${MEGATRON_WORKTREE_PATH}"
@@ -109,6 +136,7 @@ export MASTER_PORT="${MASTER_PORT}"
 
 {% endif %}
 
+{% if container_edf %}
 # Container filesystems are shared by tasks on the same node. Copy from one
 # local rank and make the other local ranks wait before importing Megatron.
 MEGATRON_SOURCE_PATH="${MEGATRON_PATH}"
@@ -120,7 +148,18 @@ if [[ -z "${MEGATRON_SOURCE_PATH}" ||
   echo "Cannot copy unsafe Megatron source path: ${MEGATRON_SOURCE_PATH}" >&2
   exit 1
 fi
-MEGATRON_CONTAINER_PATH="/opt/megatron"
+MEGATRON_CONTAINER_PATH="{{ megatron_container_path }}"
+if ! MEGATRON_SOURCE_REAL="$(realpath -e "${MEGATRON_SOURCE_PATH}")"; then
+  echo "Megatron source path does not exist: ${MEGATRON_SOURCE_PATH}" >&2
+  exit 1
+fi
+MEGATRON_CONTAINER_REAL="$(realpath -m "${MEGATRON_CONTAINER_PATH}")"
+if [[ "${MEGATRON_SOURCE_REAL}" != "${MEGATRON_CONTAINER_REAL}" ]] &&
+   { [[ "${MEGATRON_SOURCE_REAL}/" == "${MEGATRON_CONTAINER_REAL}/"* ]] ||
+     [[ "${MEGATRON_CONTAINER_REAL}/" == "${MEGATRON_SOURCE_REAL}/"* ]]; }; then
+  echo "Megatron source and container destination must not contain one another" >&2
+  exit 1
+fi
 MEGATRON_COPY_STATUS="/tmp/spellbook-megatron-copy-${SLURM_JOB_ID:-0}-${SLURM_STEP_ID:-0}.status"
 if [[ "${SLURM_LOCALID:-0}" == "0" ]]; then
   if [[ "${MEGATRON_SOURCE_PATH}" == "${MEGATRON_CONTAINER_PATH}" ]]; then
@@ -145,6 +184,8 @@ if [[ "${MEGATRON_COPY_RC}" != "0" ]]; then
   exit "${MEGATRON_COPY_RC}"
 fi
 export MEGATRON_PATH="${MEGATRON_CONTAINER_PATH}"
+
+{% endif %}
 
 export PYTHONPATH="${MEGATRON_PATH}:${PYTHONPATH:-}"
 
@@ -214,22 +255,47 @@ if [[ "${INSTALL_RC}" != "0" ]]; then
 fi
 {% endif %}
 
+mkdir -p "${OUTPUT_DIR}"
+
 {% if dataset_prefetch %}
+# OUTPUT_DIR is shared by all nodes, so it also provides a global prefetch
+# barrier before ranks switch Hugging Face into offline mode.
+PREFETCH_STATUS="${OUTPUT_DIR}/.spellbook-dataset-prefetch-${SLURM_JOB_ID}.status"
 if [[ "${SLURM_PROCID}" == "0" ]]; then
-  python3 << '"'"'PYEOF'"'"'
+  set +e
+  (
+    set -e
+    timeout --signal=TERM {{ prefetch_timeout_seconds }}s python3 << '"'"'PYEOF'"'"'
 from datasets import load_dataset
 {% for task, args in dataset_prefetch.items() %}
 load_dataset({{ args | map("tojson") | join(", ") }})
 {% endfor %}
 PYEOF
+  )
+  PREFETCH_RC=$?
+  printf "%s\n" "${PREFETCH_RC}" > "${PREFETCH_STATUS}.tmp"
+  mv -f "${PREFETCH_STATUS}.tmp" "${PREFETCH_STATUS}"
+  set -e
+else
+  PREFETCH_DEADLINE=$((SECONDS + {{ prefetch_timeout_seconds }}))
+  while [[ ! -f "${PREFETCH_STATUS}" ]]; do
+    if (( SECONDS >= PREFETCH_DEADLINE )); then
+      echo "Timed out waiting for dataset prefetch status at ${PREFETCH_STATUS}" >&2
+      exit 124
+    fi
+    sleep 1
+  done
+  PREFETCH_RC="$(<"${PREFETCH_STATUS}")"
+fi
+if [[ "${PREFETCH_RC}" != "0" ]]; then
+  echo "Dataset prefetch failed with exit code ${PREFETCH_RC}" >&2
+  exit "${PREFETCH_RC}"
 fi
 {% endif %}
 
 NPROC_PER_NODE={{ gpus_per_node }}
 NNODES=$(echo "$HOSTNAMES" | wc -l)
 NODE_RANK=${SLURM_PROCID}
-
-mkdir -p "${OUTPUT_DIR}"
 
 # Only the first node logs to wandb; otherwise every node task initializes the
 # same run id concurrently, which collides and hangs at wandb sync.
