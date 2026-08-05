@@ -10,6 +10,9 @@ job scripts, and submit sweeps without hand-editing shell scripts.
 If you are using coding agents in this repository, see [AGENTS.md](AGENTS.md) for
 repo-specific instructions and conventions.
 
+See [CHANGELOG.md](CHANGELOG.md) for the current main-merge summary and
+operational notes.
+
 ## Install
 
 ```bash
