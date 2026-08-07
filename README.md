@@ -202,6 +202,8 @@ Important fields:
 - In `launch_mode="tasks"`, `extra` may also include `cpus_per_task`, `mem`, `no_requeue`, or raw `sbatch_extra_lines`.
 - `srun_extra_args`: extra raw flags inserted into every `srun` command. If this includes `--network=VALUE`, Spellbook also exports `SLURM_NETWORK=VALUE` before `srun` so the step inherits the same network setting.
 - `reservation`: added to sbatch header and sbatch invocation.
+- `auto_requeue=True`: submit a singleton-dependent successor before training starts.
+- `auto_requeue_stop_regex`: an extended regular expression checked against the completed job's Slurm stdout log. It defaults to Megatron's normal-completion marker, `r"\[after training is done\] datetime:"`. When it matches, Spellbook cancels the successor submitted by `auto_requeue`, allowing an auto-requeue chain to stop after training finishes. Set it to `""` to disable the completion check or override it for another trainer.
 - `MegatronExperiment.pre_launch_commands`: raw shell commands inserted into `slurm.sh.j2` before the main training `srun`. Use this for setup that needs to run once per job, including a separate one-task setup `srun`.
 - `MegatronExperiment.install_commands`: raw shell commands inserted inside `slurm.sh.j2` before data path setup and training launch. Use this for per-experiment package installation.
 - `MegatronExperiment.base_data_path`: comma-separated dataset roots whose `.bin` shards are discovered at render time. Saved renders write the sorted shard prefixes to `<experiment>.data_args.txt` next to the job script and pass it with `--data-args-path`.

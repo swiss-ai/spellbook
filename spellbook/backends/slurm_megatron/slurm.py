@@ -39,6 +39,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import shlex
 import subprocess
 import tempfile
 import warnings
@@ -111,6 +112,7 @@ class SlurmBackend:
     mem_estimator: bool = False            # when True, use mem_estimator.sh.j2 (1 GPU, fake process group)
     launch_mode: str = "torchrun"          # "torchrun" or "tasks"; tasks runs python directly per Slurm task
     auto_requeue: bool = False             # submit next job before srun (sbatch --dependency=singleton $0)
+    auto_requeue_stop_regex: str = r"\[after training is done\] datetime:"
     srun_extra_args: str = ""              # extra flags appended verbatim to every srun call
     env_vars: dict[str, Any] = field(default_factory=dict)  # infrastructure env vars exported by backend
     pythonpath_env_vars: list[str] = field(default_factory=list)  # env var names whose values are prepended to PYTHONPATH
@@ -365,6 +367,10 @@ class SlurmBackend:
             "reservation": self.reservation,
             "dependency_singleton": self.dependency_singleton,
             "auto_requeue": self.auto_requeue,
+            "auto_requeue_stop_regex": self.auto_requeue_stop_regex,
+            "auto_requeue_stop_regex_shell": shlex.quote(
+                self.auto_requeue_stop_regex
+            ),
             "srun_job_id": self.srun_job_id,
             "srun_extra_args": self.srun_extra_args,
             "srun_extra_arg_env_vars": srun_extra_arg_env_vars,

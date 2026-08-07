@@ -1,4 +1,5 @@
 import hashlib
+import subprocess
 import tempfile
 import unittest
 import warnings
@@ -10,13 +11,14 @@ from spellbook.backends.slurm_megatron.create_data_config import create_data_pre
 from spellbook.megatron import MegatronExperiment
 
 
-def _backend() -> SlurmBackend:
+def _backend(**kwargs: Any) -> SlurmBackend:
     return SlurmBackend(
         account="test",
         partition="test",
         nodes=1,
         gpus_per_node=1,
         run_time="00:05:00",
+        **kwargs,
     )
 
 
@@ -98,6 +100,62 @@ class DataPathTest(unittest.TestCase):
         self.assertIn("spellbook-training-install-", script)
         self.assertIn('if [[ "${SLURM_LOCALID:-0}" == "0" ]]', script)
         self.assertIn("Package installation failed", script)
+
+    def test_auto_requeue_can_cancel_successor_on_completion_regex(self) -> None:
+        experiment = _experiment(
+            megatron_path="/source/Megatron-LM", data_path="/data/prefix"
+        )
+        regex = r"training (finished|model's complete)$"
+
+        for launch_mode in ("torchrun", "tasks"):
+            with self.subTest(launch_mode=launch_mode):
+                script = _backend(
+                    launch_mode=launch_mode,
+                    auto_requeue=True,
+                    auto_requeue_stop_regex=regex,
+                ).render(experiment)
+
+                self.assertIn("sbatch --parsable --dependency=singleton", script)
+                self.assertIn(
+                    'AUTO_REQUEUE_JOB_ID="${AUTO_REQUEUE_SUBMISSION%%;*}"', script
+                )
+                self.assertIn('scontrol show job "$SLURM_JOB_ID" -o', script)
+                self.assertIn("grep -Eq --", script)
+                self.assertIn('scancel "${AUTO_REQUEUE_JOB_ID}"', script)
+                self.assertIn('exit "${SRUN_EXIT_CODE}"', script)
+                subprocess.run(
+                    ["bash", "-n"],
+                    input=script,
+                    text=True,
+                    check=True,
+                )
+
+    def test_auto_requeue_uses_megatron_completion_marker_by_default(self) -> None:
+        experiment = _experiment(
+            megatron_path="/source/Megatron-LM", data_path="/data/prefix"
+        )
+
+        script = _backend(auto_requeue=True).render(experiment)
+
+        self.assertIn(r"grep -Eq -- '\[after training is done\] datetime:'", script)
+        self.assertIn('scancel "${AUTO_REQUEUE_JOB_ID}"', script)
+
+    def test_auto_requeue_completion_check_requires_both_settings(self) -> None:
+        experiment = _experiment(
+            megatron_path="/source/Megatron-LM", data_path="/data/prefix"
+        )
+
+        disabled_regex = _backend(
+            auto_requeue=True, auto_requeue_stop_regex=""
+        ).render(experiment)
+        without_requeue = _backend(
+            auto_requeue_stop_regex="training finished"
+        ).render(experiment)
+
+        self.assertNotIn("grep -Eq --", disabled_regex)
+        self.assertNotIn("grep -Eq --", without_requeue)
+        self.assertNotIn("scancel", disabled_regex)
+        self.assertNotIn("scancel", without_requeue)
 
     def test_discovery_can_follow_symlinked_directories(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
