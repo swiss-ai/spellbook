@@ -63,6 +63,7 @@ class MegatronEvalConfig:
     micro_batch_size: int = 1        # per-rank batch passed to the lm-eval adapter
     metadata: dict[str, object] = dataclasses.field(default_factory=dict, metadata=_LM_EVAL_ARG)
     extra_args: str = ""             # extra flags appended verbatim to lm_eval model_args
+    model_args_extra: dict[str, Any] = dataclasses.field(default_factory=dict)
     output_dir: str | None = None     # defaults to <submission directory>/evals
     log_samples: bool = dataclasses.field(default=False, metadata=_LM_EVAL_ARG)
     write_out: bool = dataclasses.field(default=False, metadata=_LM_EVAL_ARG)  # print prompts
@@ -130,6 +131,7 @@ def _model_args(cfg: MegatronEvalConfig, ckpt_step: int) -> str:
             "seq_length": cfg.seq_length,
             "micro_batch_size": cfg.micro_batch_size,
             "extra_args": cfg.extra_args,
+            **cfg.model_args_extra,
         }
     )
 
