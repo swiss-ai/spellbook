@@ -109,7 +109,8 @@ class SlurmBackend:
     dependency_singleton: bool = True      # adds --dependency=singleton to sbatch header
     no_save: bool = False                  # render and submit without writing the .sh file to disk
     srun_job_id: str = ""                  # when set, use srun.sh.j2 + run inside allocation
-    mem_estimator: bool = False            # when True, use mem_estimator.sh.j2 (1 GPU, fake process group)
+    mem_estimator: bool = False            # use bundled estimator (1 GPU, fake process group)
+    theoretical_memory: bool = False       # use Megatron's tools/report_theoretical_memory.py
     launch_mode: str = "torchrun"          # "torchrun" or "tasks"; tasks runs python directly per Slurm task
     auto_requeue: bool = False             # submit next job before srun (sbatch --dependency=singleton $0)
     auto_requeue_stop_regex: str = r"\[after training is done\] datetime:"
@@ -220,7 +221,11 @@ class SlurmBackend:
                 f"Unsupported SlurmBackend.launch_mode={self.launch_mode!r}; "
                 "expected 'torchrun' or 'tasks'."
             )
-        if self.mem_estimator:
+        if self.mem_estimator and self.theoretical_memory:
+            raise ValueError(
+                "mem_estimator and theoretical_memory are mutually exclusive"
+            )
+        if self.mem_estimator or self.theoretical_memory:
             return "mem_estimator.sh.j2"
         if self.srun_job_id:
             return "srun.sh.j2"
@@ -378,6 +383,7 @@ class SlurmBackend:
             "pythonpath": ":".join(pythonpath_parts),
             "srun_export_vars": srun_export_vars,
             "mem_estimator_path": mem_estimator_path,
+            "theoretical_memory": self.theoretical_memory,
         }
         return tmpl.render(ctx)
 

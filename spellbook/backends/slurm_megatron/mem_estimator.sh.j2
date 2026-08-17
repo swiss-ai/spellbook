@@ -1,6 +1,10 @@
 #!/bin/bash
+{% if theoretical_memory %}
+# Memory estimation — runs Megatron's own theoretical memory report.
+{% else %}
 # Memory estimation — runs estimate_013.py with --fake-process-group on a single GPU.
 # credits: https://github.com/ISEEKYAN/mbridge/tree/main/memory_estimator
+{% endif %}
 #
 # Run directly: bash <script>.sh
 # Or inside an existing allocation: SRUN_JOB_ID=<id> bash <script>.sh
@@ -40,6 +44,10 @@ export PYTHONPATH="${MEGATRON_PATH}:{{ pythonpath }}:${PYTHONPATH:-}"
 export {{ key }}="{{ value }}"
 {%- endif %}
 {%- endfor %}
+{% if theoretical_memory %}
+python "${MEGATRON_PATH}/tools/report_theoretical_memory.py" \
+  {{ training_args_lines | join(" \\\n  ") }}
+{% else %}
 pip install sentencepiece ipdb termcolor
 export WORLD_SIZE=$(( SLURM_GPUS_ON_NODE * {{ nodes }} ))
 export RANK=0
@@ -47,4 +55,5 @@ SLURM_NNODES={{ nodes }} WORLD_SIZE=$(( SLURM_GPUS_ON_NODE * {{ nodes }} )) RANK
   python "{{ mem_estimator_path }}/estimate_013.py" \
   --fake-process-group \
   {{ training_args_lines | join(" \\\n  ") }}
+{% endif %}
 '

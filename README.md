@@ -193,7 +193,8 @@ sweep = sweep_grid(
 - default: render `slurm.sh.j2` and submit with `sbatch`.
 - `launch_mode="tasks"`: render `slurm_tasks.sh.j2`, request `ntasks-per-node=gpus_per_node`, and run the training script directly once per Slurm task instead of using `torchrun`.
 - `srun_job_id` set: render `srun.sh.j2` and execute script with `bash` in an existing allocation.
-- `mem_estimator=True`: render `mem_estimator.sh.j2`.
+- `mem_estimator=True`: render `mem_estimator.sh.j2` with the bundled estimator.
+- `theoretical_memory=True`: render the same single-task estimator job but run the selected Megatron checkout's `tools/report_theoretical_memory.py`. For example, set `MegatronExperiment.megatron_path="/users/anowak/open_source/Megatron-LM-MoE"` to use that checkout. This is mutually exclusive with `mem_estimator=True`.
 
 Important fields:
 - `MegatronExperiment.megatron_path`: a local checkout or Git URL. URL caches are refreshed under `${SCRATCH}/tmp/megatron_repos` before each launch; unpinned URLs follow the remote default branch, while `megatron_commit` pins a commit or resolves a refreshed remote branch. Runs use source-specific locked worktrees under `${SCRATCH}/tmp/megatron_worktrees`. Without `SCRATCH`, the cache falls back below the user-namespaced `${TMPDIR:-/tmp}/spellbook-$USER` directory. When `container_edf` is configured, the selected checkout is copied into the container at `/opt/megatron` before Megatron starts; non-container launches use the source checkout directly.

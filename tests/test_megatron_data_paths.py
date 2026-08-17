@@ -50,6 +50,7 @@ class DataPathTest(unittest.TestCase):
             _container_backend(launch_mode="tasks"),
             _container_backend(srun_job_id="123"),
             _container_backend(mem_estimator=True),
+            _container_backend(theoretical_memory=True),
         ]
 
         for backend in backends:
@@ -62,6 +63,25 @@ class DataPathTest(unittest.TestCase):
                 self.assertIn(
                     'export MEGATRON_PATH="${MEGATRON_CONTAINER_PATH}"', script
                 )
+
+    def test_theoretical_memory_uses_megatron_report_tool(self) -> None:
+        experiment = _experiment(
+            megatron_path="/users/anowak/open_source/Megatron-LM-MoE",
+            data_path="/data/prefix",
+        )
+
+        script = _backend(theoretical_memory=True).render(experiment)
+
+        self.assertIn(
+            'python "${MEGATRON_PATH}/tools/report_theoretical_memory.py"', script
+        )
+        self.assertNotIn("estimate_013.py", script)
+        self.assertNotIn("--fake-process-group", script)
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+    def test_memory_estimator_modes_are_mutually_exclusive(self) -> None:
+        with self.assertRaisesRegex(ValueError, "mutually exclusive"):
+            _backend(mem_estimator=True, theoretical_memory=True)._template_name()
 
     def test_megatron_is_not_copied_without_a_container(self) -> None:
         experiment = _experiment(
