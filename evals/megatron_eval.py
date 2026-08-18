@@ -220,8 +220,7 @@ def _render(
         "wandb_args": (
             f"project={cfg.wandb_project},"
             f"id={cfg.wandb_id or cfg.model_name},"
-            f"step={consumed_tokens or ckpt_step},"
-            f"optimizer_step={ckpt_step},resume=allow"
+            f"step={consumed_tokens or ckpt_step},resume=allow"
         )
         if cfg.wandb_project
         else None
