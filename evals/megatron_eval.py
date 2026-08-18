@@ -157,7 +157,12 @@ def _is_megatron_url(value: str) -> bool:
     ) or (value.startswith("git@") and ":" in value)
 
 
-def _render(cfg: MegatronEvalConfig, ckpt_step: int, dependency_singleton: bool) -> str:
+def _render(
+    cfg: MegatronEvalConfig,
+    ckpt_step: int,
+    dependency_singleton: bool,
+    consumed_tokens: int | None = None,
+) -> str:
     if cfg.launch_mode not in {"torchrun", "tasks"}:
         raise ValueError(
             f"Unsupported MegatronEvalConfig.launch_mode={cfg.launch_mode!r}; "
@@ -198,6 +203,9 @@ def _render(cfg: MegatronEvalConfig, ckpt_step: int, dependency_singleton: bool)
         f"{cfg.megatron_path}\0{cfg.megatron_commit}".encode()
     ).hexdigest()[:16]
     ctx["ckpt_step"] = ckpt_step
+    if consumed_tokens is not None and consumed_tokens <= 0:
+        raise ValueError("consumed_tokens must be greater than zero")
+
     ctx["date"] = datetime.now().strftime("%Y-%m-%d")
     ctx["dependency_singleton"] = dependency_singleton
     ctx["ntasks_per_node"] = cfg.gpus_per_node if cfg.launch_mode == "tasks" else 1
@@ -212,7 +220,8 @@ def _render(cfg: MegatronEvalConfig, ckpt_step: int, dependency_singleton: bool)
         "wandb_args": (
             f"project={cfg.wandb_project},"
             f"id={cfg.wandb_id or cfg.model_name},"
-            f"step={ckpt_step},resume=allow"
+            f"step={consumed_tokens or ckpt_step},"
+            f"optimizer_step={ckpt_step},resume=allow"
         )
         if cfg.wandb_project
         else None
@@ -288,12 +297,22 @@ def render_watcher_script(
     return script_path
 
 
-def submit(cfg: MegatronEvalConfig, ckpt_step: int, dependency_singleton: bool = False) -> str:
-    """Render and submit a single eval job. Returns the Slurm job ID."""
+def submit(
+    cfg: MegatronEvalConfig,
+    ckpt_step: int,
+    dependency_singleton: bool = False,
+    consumed_tokens: int | None = None,
+) -> str:
+    """Submit one checkpoint, optionally using consumed tokens as the W&B x-axis."""
     (Path(cfg.log_dir).expanduser() / cfg.model_name).mkdir(
         parents=True, exist_ok=True
     )
-    script = _render(cfg, ckpt_step, dependency_singleton)
+    script = _render(
+        cfg,
+        ckpt_step,
+        dependency_singleton,
+        consumed_tokens=consumed_tokens,
+    )
     job_id = _sbatch(script, cfg.reservation, cfg.exclude)
     print(f"  {cfg.model_name} step={ckpt_step}: submitted → job {job_id}")
     return job_id
@@ -305,6 +324,8 @@ def submit_range(
     end: int,
     step: int,
     mode: RangeMode = RangeMode.PARALLEL,
+    global_batch_size: int | None = None,
+    seq_length: int | None = None,
 ) -> list[str]:
     """Submit eval jobs for checkpoints in [start, end] (inclusive) with the given step.
 
@@ -317,6 +338,7 @@ def submit_range(
             cfg,
             ckpt_step,
             dependency_singleton=(mode == RangeMode.SEQUENTIAL),
+            consumed_tokens=global_batch_size * ckpt_step * seq_length if global_batch_size is not None and seq_length is not None else None,
         )
         job_ids.append(job_id)
     return job_ids
