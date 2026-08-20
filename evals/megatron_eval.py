@@ -352,6 +352,7 @@ def render_watcher_script(
     watch_checkpoint_dir: str | None = None,
     config_model: str | None = None,
     consumed_tokens_per_step: int | None = None,
+    watch_state_dir: str | None = None,
 ) -> Path:
     """Render evals/<model>/watcher.sh — the self-scheduling sbatch watcher."""
     if interval_hours <= 0:
@@ -379,7 +380,12 @@ def render_watcher_script(
         if watch_checkpoint_dir
         else Path(cfg.checkpoint_dir).expanduser() / cfg.model_name
     )
-    stop_file = project_dir / "evals" / "state_files" / cfg.model_name / ".watcher_stop"
+    state_dir = (
+        Path(watch_state_dir).expanduser()
+        if watch_state_dir
+        else project_dir / "evals" / "state_files"
+    )
+    stop_file = state_dir / cfg.model_name / ".watcher_stop"
     ctx = {
         "model_name": cfg.model_name,
         "account": cfg.account,
@@ -388,6 +394,7 @@ def render_watcher_script(
         "reservation": cfg.reservation,
         "watch_checkpoint_dir": str(checkpoint_dir),
         "stop_file": str(stop_file),
+        "state_file": str(state_dir / cfg.model_name / ".submitted_steps"),
         "config_path": str(Path(config_path).resolve()),
         "config_model": config_model,
         "consumed_tokens_per_step": consumed_tokens_per_step,

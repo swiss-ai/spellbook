@@ -33,7 +33,7 @@ from evals.megatron_eval import MegatronEvalConfig, render_watcher_script, submi
 def _load_config(
     config_path: str,
     model_name: str | None = None,
-) -> tuple[MegatronEvalConfig, str | None]:
+) -> tuple[MegatronEvalConfig, str | None, str | None]:
     path = Path(config_path).resolve()
     spec = importlib.util.spec_from_file_location("_eval_config", path)
     if spec is None or spec.loader is None:
@@ -56,7 +56,11 @@ def _load_config(
             "`build_eval_config(model_name)` used with --model"
         )
         sys.exit(1)
-    return cfg, getattr(mod, "watch_checkpoint_dir", None)
+    return (
+        cfg,
+        getattr(mod, "watch_checkpoint_dir", None),
+        getattr(mod, "watch_state_dir", None),
+    )
 
 
 def _latest_step(checkpoint_dir: Path) -> int | None:
@@ -69,8 +73,12 @@ def _latest_step(checkpoint_dir: Path) -> int | None:
     return int(text)
 
 
-def _state_file(cfg: MegatronEvalConfig) -> Path:
-    return Path("evals") / "state_files" / cfg.model_name / ".submitted_steps"
+def _state_file(
+    cfg: MegatronEvalConfig,
+    state_dir: str | None = None,
+) -> Path:
+    root = Path(state_dir) if state_dir else Path("evals") / "state_files"
+    return root / cfg.model_name / ".submitted_steps"
 
 
 def _submitted_steps(state: Path) -> set[int]:
@@ -98,7 +106,7 @@ def _consumed_tokens(step: int, tokens_per_step: int | None) -> int | None:
 
 
 def cmd_check(args: argparse.Namespace) -> None:
-    cfg, watch_dir_override = _load_config(args.config, args.model)
+    cfg, watch_dir_override, state_dir = _load_config(args.config, args.model)
 
     if args.step is not None:
         # Called from watcher.sh with the step already validated by bash.
@@ -117,7 +125,7 @@ def cmd_check(args: argparse.Namespace) -> None:
         print(f"No completed checkpoint found in {ckpt_dir} — nothing to do.")
         return
 
-    state = _state_file(cfg)
+    state = _state_file(cfg, state_dir)
     submitted = _submitted_steps(state)
 
     if latest in submitted:
@@ -133,14 +141,19 @@ def cmd_check(args: argparse.Namespace) -> None:
     _record_step(state, latest)
 
 
-def _watcher_stop_file(cfg: MegatronEvalConfig, project_dir: Path) -> Path:
-    return project_dir / "evals" / "state_files" / cfg.model_name / ".watcher_stop"
+def _watcher_stop_file(
+    cfg: MegatronEvalConfig,
+    project_dir: Path,
+    state_dir: str | None = None,
+) -> Path:
+    root = Path(state_dir) if state_dir else project_dir / "evals" / "state_files"
+    return root / cfg.model_name / ".watcher_stop"
 
 
 def cmd_start(args: argparse.Namespace) -> None:
-    cfg, watch_dir_override = _load_config(args.config, args.model)
+    cfg, watch_dir_override, state_dir = _load_config(args.config, args.model)
     project_dir = Path(__file__).resolve().parent.parent
-    stop_file = _watcher_stop_file(cfg, project_dir)
+    stop_file = _watcher_stop_file(cfg, project_dir, state_dir)
     stop_file.unlink(missing_ok=True)
     script_path = render_watcher_script(
         cfg,
@@ -150,6 +163,7 @@ def cmd_start(args: argparse.Namespace) -> None:
         watch_checkpoint_dir=watch_dir_override,
         config_model=args.model,
         consumed_tokens_per_step=args.consumed_tokens_per_step,
+        watch_state_dir=state_dir,
     )
     result = subprocess.run(
         ["sbatch", str(script_path)],
@@ -168,9 +182,9 @@ def cmd_start(args: argparse.Namespace) -> None:
 
 
 def cmd_stop(args: argparse.Namespace) -> None:
-    cfg, _ = _load_config(args.config, args.model)
+    cfg, _, state_dir = _load_config(args.config, args.model)
     project_dir = Path(__file__).resolve().parent.parent
-    stop_file = _watcher_stop_file(cfg, project_dir)
+    stop_file = _watcher_stop_file(cfg, project_dir, state_dir)
     stop_file.parent.mkdir(parents=True, exist_ok=True)
     stop_file.touch()
     result = subprocess.run(

@@ -15,7 +15,7 @@
 set -euo pipefail
 
 MARKER="{{ watch_checkpoint_dir }}/latest_checkpointed_iteration.txt"
-STATE_FILE="{{ project_dir }}/evals/state_files/{{ model_name }}/.submitted_steps"
+STATE_FILE="{{ state_file }}"
 STOP_FILE="{{ stop_file }}"
 THIS_SCRIPT="{{ watcher_script_path }}"
 

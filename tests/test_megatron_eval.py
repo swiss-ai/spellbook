@@ -272,6 +272,7 @@ class MegatronPathTest(unittest.TestCase):
             root = Path(tmp)
             cfg = _config("/path/to/Megatron-LM")
             watch_dir = root / "custom-checkpoints"
+            state_dir = root / "custom-state"
             script_path = render_watcher_script(
                 cfg,
                 config_path=str(root / "config.py"),
@@ -279,6 +280,7 @@ class MegatronPathTest(unittest.TestCase):
                 watch_checkpoint_dir=str(watch_dir),
                 config_model="selected",
                 consumed_tokens_per_step=2048,
+                watch_state_dir=str(state_dir),
             )
 
             script = script_path.read_text()
@@ -287,9 +289,7 @@ class MegatronPathTest(unittest.TestCase):
             )
             self.assertIn(
                 str(
-                    root
-                    / "evals"
-                    / "state_files"
+                    state_dir
                     / cfg.model_name
                     / ".submitted_steps"
                 ),
@@ -312,7 +312,10 @@ class MegatronPathTest(unittest.TestCase):
             ["sbatch"], returncode=0, stdout="Submitted batch job 123\n", stderr=""
         )
         with (
-            patch("evals.watcher._load_config", return_value=(cfg, "/override")),
+            patch(
+                "evals.watcher._load_config",
+                return_value=(cfg, "/override", "/state"),
+            ),
             patch("evals.watcher._watcher_stop_file") as stop_file,
             patch("evals.watcher.render_watcher_script", return_value=Path("watcher.sh")) as render,
             patch("evals.watcher.subprocess.run", return_value=completed),
@@ -331,7 +334,7 @@ class MegatronPathTest(unittest.TestCase):
                 ["scancel"], returncode=0, stdout="", stderr=""
             )
             with (
-                patch("evals.watcher._load_config", return_value=(cfg, None)),
+                patch("evals.watcher._load_config", return_value=(cfg, None, None)),
                 patch("evals.watcher._watcher_stop_file", return_value=stop_file),
                 patch("evals.watcher.subprocess.run", return_value=completed) as cancel,
             ):
@@ -359,7 +362,7 @@ class MegatronPathTest(unittest.TestCase):
                 ")\n"
             )
 
-            cfg, _ = _load_config(str(config_path))
+            cfg, _, _ = _load_config(str(config_path))
 
             self.assertEqual(cfg.model_name, "external")
 
@@ -381,7 +384,7 @@ class MegatronPathTest(unittest.TestCase):
                 "    )\n"
             )
 
-            cfg, _ = _load_config(str(config_path), "selected")
+            cfg, _, _ = _load_config(str(config_path), "selected")
 
             self.assertEqual(cfg.model_name, "selected")
 
