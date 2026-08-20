@@ -112,6 +112,71 @@ pip install --no-deps "git+https://github.com/andresnowak/sonic-moe.git@7d931fe0
 submit(cfg, ckpt_step=3000)
 ```
 
+### Run multiple lm-eval configurations in one job
+
+Use `LMEvalRunConfig` when several evaluations should share one Slurm
+allocation, container setup, Megatron checkout, package installation, and
+dataset prefetch:
+
+```python
+from evals.megatron_eval import (
+    AllocationMode,
+    LMEvalRunConfig,
+    MegatronEvalConfig,
+    submit_evaluations,
+)
+
+cfg = MegatronEvalConfig(
+    # Shared model, Megatron, Slurm, and container fields...
+    model_name="MY_MODEL",
+    checkpoint_dir="/path/to/checkpoints",
+    tokenizer_model="/path/to/tokenizer",
+    megatron_path="/path/to/Megatron-LM",
+    eval_runs=[
+        LMEvalRunConfig(
+            name="3shot",
+            tasks=["mmlu"],
+            lm_eval_args={"num_fewshot": 3},
+            wandb_name="Core tasks — 3-shot",
+            wandb_id="my-model-core-3shot",
+        ),
+        LMEvalRunConfig(
+            name="zero-shot",
+            tasks=["hellaswag", "arc_easy"],
+            lm_eval_args={"num_fewshot": 0, "batch_size": 4},
+            env_vars={"DISABLE_MULTIPROC": "1"},
+            wandb_name="Core tasks — zero-shot",
+        ),
+    ],
+)
+submit_evaluations(
+    cfg,
+    ckpt_steps=[1000, 2000, 3000],
+    checkpoint_mode=AllocationMode.SHARED,
+    eval_mode=AllocationMode.SHARED,
+)
+```
+
+Checkpoint and run grouping are independent:
+
+| `checkpoint_mode` | `eval_mode` | Jobs |
+|---|---|---|
+| `SHARED` | `SHARED` | One job for the full checkpoint/run matrix |
+| `SEPARATE` | `SHARED` | One job per checkpoint, containing all runs |
+| `SHARED` | `SEPARATE` | One job per run, containing all checkpoints |
+| `SEPARATE` | `SEPARATE` | One job per checkpoint/run pair |
+
+`lm_eval_args` may override top-level lm-eval options for that invocation; model,
+model arguments, tasks, output paths, and WandB arguments remain renderer-owned.
+Invocations grouped into one job execute sequentially, and distributed parent
+shells meet at a shared-file barrier before starting the next command. Results
+are written below
+`<output_dir>/<model_name>/step_<step>/<run.name>`. `wandb_name` is the display
+name in the WandB UI, while `wandb_id` is the stable resume identifier. An
+omitted run ID defaults to `<config.wandb_id-or-model_name>-<run.name>`.
+Without `eval_runs`, the existing single-run behavior and output path remain
+unchanged.
+
 `MegatronEvalConfig.megatron_path` accepts either a local checkout or a Git URL
 such as `https://github.com/NVIDIA/Megatron-LM.git`. A URL is cloned once into a
 deterministic cache below `${SCRATCH}/tmp/megatron_repos`; concurrent eval jobs
@@ -221,7 +286,12 @@ from evals.megatron_eval import RangeMode, submit_range
 submit_range(cfg, start=500, end=3500, step=500, mode=RangeMode.PARALLEL)
 ```
 
-`PARALLEL` submits all jobs at once. `SEQUENTIAL` adds `--dependency=singleton` so they queue one after another.
+`PARALLEL` submits separate jobs at once. `SEQUENTIAL` adds
+`--dependency=singleton` so separate jobs queue behind one another. By default,
+checkpoint allocations are `SEPARATE` and configured eval runs are `SHARED`,
+preserving one job per checkpoint. Pass `checkpoint_mode=AllocationMode.SHARED`
+to execute the checkpoint range sequentially in one allocation; `eval_mode`
+controls run grouping independently.
 
 ## Self-scheduling watcher
 

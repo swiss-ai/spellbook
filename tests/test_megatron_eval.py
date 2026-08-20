@@ -7,11 +7,14 @@ from pathlib import Path
 from unittest.mock import patch
 
 from evals.megatron_eval import (
+    AllocationMode,
+    LMEvalRunConfig,
     MegatronEvalConfig,
     _is_megatron_url,
     _render,
     render_watcher_script,
     submit,
+    submit_evaluations,
 )
 from evals.watcher import _load_config, cmd_start, cmd_stop
 
@@ -23,6 +26,7 @@ def _config(megatron_path: str, megatron_commit: str = "") -> MegatronEvalConfig
         tokenizer_model="tokenizer",
         megatron_path=megatron_path,
         megatron_commit=megatron_commit,
+        tasks=["hellaswag"],
     )
 
 
@@ -140,6 +144,119 @@ class MegatronPathTest(unittest.TestCase):
         script = _render(_config("/path/to/Megatron-LM"), 10, False)
 
         self.assertIn('if [[ -f ".env" ]]; then', script)
+
+    def test_multiple_lm_eval_runs_share_one_job(self) -> None:
+        cfg = _config("/path/to/Megatron-LM")
+        cfg.launch_mode = "tasks"
+        cfg.nodes = 2
+        cfg.gpus_per_node = 4
+        cfg.wandb_project = "evals"
+        cfg.wandb_id = "checkpoint"
+        cfg.eval_runs = [
+            LMEvalRunConfig(
+                name="3shot",
+                tasks=["mmlu"],
+                lm_eval_args={"num_fewshot": 3},
+                wandb_name="Core 3-shot",
+                wandb_id="core-3shot",
+            ),
+            LMEvalRunConfig(
+                name="zero-shot",
+                tasks=["hellaswag", "arc_easy"],
+                lm_eval_args={"num_fewshot": 0, "batch_size": 4},
+                env_vars={"DISABLE_MULTIPROC": "1"},
+                wandb_name="Core zero-shot",
+            ),
+        ]
+
+        script = _render(cfg, 10, False)
+
+        self.assertEqual(script.count("python -m lm_eval"), 2)
+        self.assertIn("--tasks mmlu", script)
+        self.assertIn("--num_fewshot 3", script)
+        self.assertIn("--tasks hellaswag,arc_easy", script)
+        self.assertIn("--num_fewshot 0", script)
+        self.assertIn("--batch_size 4", script)
+        self.assertIn("step_10/3shot", script)
+        self.assertIn("step_10/zero-shot", script)
+        self.assertIn('export DISABLE_MULTIPROC="1"', script)
+        self.assertIn("id=core-3shot", script)
+        self.assertIn("name=Core 3-shot", script)
+        self.assertIn("id=checkpoint-zero-shot", script)
+        self.assertIn("name=Core zero-shot", script)
+        self.assertIn("suite_barrier 0", script)
+        self.assertIn("suite_barrier 1", script)
+        self.assertIn("< 8", script)
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+    def test_checkpoint_and_eval_run_allocation_modes_are_independent(self) -> None:
+        cfg = _config("/path/to/Megatron-LM")
+        cfg.wandb_project = "evals"
+        cfg.eval_runs = [
+            LMEvalRunConfig(name="first", tasks=["a"]),
+            LMEvalRunConfig(name="second", tasks=["b"]),
+        ]
+        with patch(
+            "evals.megatron_eval._sbatch", side_effect=["1", "2", "3", "4"]
+        ) as sbatch:
+            job_ids = submit_evaluations(
+                cfg,
+                [10, 20],
+                checkpoint_mode=AllocationMode.SEPARATE,
+                eval_mode=AllocationMode.SEPARATE,
+            )
+
+        self.assertEqual(job_ids, ["1", "2", "3", "4"])
+        self.assertEqual(sbatch.call_count, 4)
+        for call in sbatch.call_args_list:
+            self.assertEqual(call.args[0].count("-m lm_eval"), 1)
+
+        with patch("evals.megatron_eval._sbatch", return_value="5") as sbatch:
+            job_ids = submit_evaluations(
+                cfg,
+                [10, 20],
+                checkpoint_mode=AllocationMode.SHARED,
+                eval_mode=AllocationMode.SHARED,
+                consumed_tokens={10: 1000, 20: 2000},
+            )
+
+        self.assertEqual(job_ids, ["5"])
+        script = sbatch.call_args.args[0]
+        self.assertEqual(script.count("-m lm_eval"), 4)
+        self.assertIn('export CKPT_STEP="10"', script)
+        self.assertIn('export CKPT_STEP="20"', script)
+        self.assertIn("step_10/first", script)
+        self.assertIn("step_20/second", script)
+        self.assertIn("consumed_tokens=1000", script)
+        self.assertIn("consumed_tokens=2000", script)
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+    def test_eval_run_names_are_unique_and_renderer_arguments_win(self) -> None:
+        cfg = _config("/path/to/Megatron-LM")
+        cfg.eval_runs = [
+            LMEvalRunConfig(name="same", tasks=["a"]),
+            LMEvalRunConfig(name="same", tasks=["b"]),
+        ]
+        with self.assertRaisesRegex(ValueError, "unique"):
+            _render(cfg, 10, False)
+
+        cfg.eval_runs = [
+            LMEvalRunConfig(
+                name="run",
+                tasks=["a"],
+                lm_eval_args={
+                    "model": "hf",
+                    "model_args": "pretrained=wrong",
+                    "tasks": ["wrong"],
+                    "output_path": "/tmp/wrong",
+                },
+            )
+        ]
+        script = _render(cfg, 10, False)
+        self.assertIn("--model megatron_lm", script)
+        self.assertIn("--tasks a", script)
+        self.assertNotIn("pretrained=wrong", script)
+        self.assertNotIn("/tmp/wrong", script)
 
     def test_submit_creates_slurm_log_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

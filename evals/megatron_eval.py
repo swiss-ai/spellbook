@@ -33,11 +33,29 @@ from evals import flags as lm_eval_flags
 
 _TEMPLATES_DIR = Path(__file__).parent
 _LM_EVAL_ARG = {"lm_eval_arg": True}
+_RUN_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 class RangeMode(Enum):
     PARALLEL   = "parallel"    # one job per ckpt, all submitted at once
     SEQUENTIAL = "sequential"  # one job per ckpt, dependency=singleton
+
+
+class AllocationMode(Enum):
+    SHARED = "shared"
+    SEPARATE = "separate"
+
+
+@dataclasses.dataclass
+class LMEvalRunConfig:
+    """One lm-eval invocation inside a shared Megatron evaluation job."""
+
+    name: str
+    tasks: list[str]
+    lm_eval_args: dict[str, Any] = dataclasses.field(default_factory=dict)
+    env_vars: dict[str, str] = dataclasses.field(default_factory=dict)
+    wandb_name: str = ""
+    wandb_id: str = ""
 
 
 @dataclasses.dataclass
@@ -67,6 +85,9 @@ class MegatronEvalConfig:
     output_dir: str | None = None     # defaults to <submission directory>/evals
     log_samples: bool = dataclasses.field(default=False, metadata=_LM_EVAL_ARG)
     write_out: bool = dataclasses.field(default=False, metadata=_LM_EVAL_ARG)  # print prompts
+    eval_runs: list[LMEvalRunConfig] = dataclasses.field(
+        default_factory=list, kw_only=True
+    )
 
     # --- Slurm ---
     account: str = ""
@@ -140,13 +161,33 @@ def _lm_eval_args(
     cfg: MegatronEvalConfig,
     ckpt_step: int,
     output_path: Path,
+    run: LMEvalRunConfig | None = None,
 ) -> Mapping[str, Any]:
     return {
+        **_marked_lm_eval_args(cfg),
+        **(run.lm_eval_args if run is not None else {}),
         "model": "megatron_lm",
         "model_args": _model_args(cfg, ckpt_step),
-        **_marked_lm_eval_args(cfg),
+        "tasks": run.tasks if run is not None else cfg.tasks,
         "output_path": str(output_path),
     }
+
+
+def _validate_eval_runs(cfg: MegatronEvalConfig) -> None:
+    if not cfg.eval_runs:
+        if not cfg.tasks:
+            raise ValueError("tasks must not be empty when eval_runs is empty")
+        return
+    names = [run.name for run in cfg.eval_runs]
+    if len(names) != len(set(names)):
+        raise ValueError("eval run names must be unique")
+    for run in cfg.eval_runs:
+        if not _RUN_NAME.fullmatch(run.name):
+            raise ValueError(
+                "eval run names may contain only letters, numbers, dots, underscores, and hyphens"
+            )
+        if not run.tasks:
+            raise ValueError(f"eval run {run.name!r} tasks must not be empty")
 
 
 def _is_megatron_url(value: str) -> bool:
@@ -157,11 +198,10 @@ def _is_megatron_url(value: str) -> bool:
     ) or (value.startswith("git@") and ":" in value)
 
 
-def _render(
+def _render_checkpoints(
     cfg: MegatronEvalConfig,
-    ckpt_step: int,
+    checkpoints: tuple[tuple[int, int | None], ...],
     dependency_singleton: bool,
-    consumed_tokens: int | None = None,
 ) -> str:
     if cfg.launch_mode not in {"torchrun", "tasks"}:
         raise ValueError(
@@ -181,6 +221,7 @@ def _render(
         )
     if cfg.prefetch_timeout_seconds <= 0:
         raise ValueError("prefetch_timeout_seconds must be greater than zero")
+    _validate_eval_runs(cfg)
 
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),
@@ -202,33 +243,88 @@ def _render(
     ctx["megatron_worktree_key"] = hashlib.sha256(
         f"{cfg.megatron_path}\0{cfg.megatron_commit}".encode()
     ).hexdigest()[:16]
-    ctx["ckpt_step"] = ckpt_step
-    if consumed_tokens is not None and consumed_tokens <= 0:
-        raise ValueError("consumed_tokens must be greater than zero")
+    if not checkpoints:
+        raise ValueError("checkpoints must not be empty")
+    if len({step for step, _ in checkpoints}) != len(checkpoints):
+        raise ValueError("checkpoint steps must be unique")
+    for step, consumed_tokens in checkpoints:
+        if step <= 0:
+            raise ValueError("checkpoint steps must be greater than zero")
+        if consumed_tokens is not None and consumed_tokens <= 0:
+            raise ValueError("consumed_tokens must be greater than zero")
+    checkpoint_label = (
+        str(checkpoints[0][0])
+        if len(checkpoints) == 1
+        else f"{checkpoints[0][0]}-{checkpoints[-1][0]}"
+    )
+    ctx["ckpt_step"] = checkpoint_label
 
     ctx["date"] = datetime.now().strftime("%Y-%m-%d")
     ctx["dependency_singleton"] = dependency_singleton
     ctx["ntasks_per_node"] = cfg.gpus_per_node if cfg.launch_mode == "tasks" else 1
     ctx["total_tasks"] = cfg.nodes * ctx["ntasks_per_node"]
     output_dir = Path(cfg.output_dir).expanduser() if cfg.output_dir else Path.cwd() / "evals"
-    output_path = output_dir.resolve() / cfg.model_name / f"step_{ckpt_step}"
-    ctx["output_dir"] = str(output_dir.resolve())
-    ctx["lm_eval_args_lines"] = lm_eval_flags.to_shell_lines(
-        _lm_eval_args(cfg, ckpt_step, output_path)
+    model_output_dir = output_dir.resolve() / cfg.model_name
+    ctx["suite_output_dir"] = str(
+        model_output_dir / f"step_{checkpoints[0][0]}"
+        if len(checkpoints) == 1
+        else model_output_dir
     )
-    wandb_args = {
-        "wandb_args": (
-            f"project={cfg.wandb_project},"
-            f"id={cfg.wandb_id or cfg.model_name},"
-            f"step={ckpt_step},"
-            f"{f'consumed_tokens={consumed_tokens},' if consumed_tokens is not None else ''}"
-            "resume=allow"
-        )
-        if cfg.wandb_project
-        else None
-    }
-    ctx["wandb_args_line"] = next(iter(lm_eval_flags.to_shell_lines(wandb_args)), "")
+    ctx["eval_runs"] = []
+    runs: tuple[LMEvalRunConfig | None, ...] = (
+        tuple(cfg.eval_runs) if cfg.eval_runs else (None,)
+    )
+    for ckpt_step, consumed_tokens in checkpoints:
+        checkpoint_output = model_output_dir / f"step_{ckpt_step}"
+        for run in runs:
+            run_output_path = (
+                checkpoint_output / run.name if run is not None else checkpoint_output
+            )
+            base_id = cfg.wandb_id or cfg.model_name
+            run_id = (
+                base_id
+                if run is None
+                else run.wandb_id or f"{base_id}-{run.name}"
+            )
+            wandb_parts = [
+                f"project={cfg.wandb_project}",
+                f"id={run_id}",
+                f"step={ckpt_step}",
+            ]
+            if run is not None:
+                wandb_parts.append(f"name={run.wandb_name or run.name}")
+            if consumed_tokens is not None:
+                wandb_parts.append(f"consumed_tokens={consumed_tokens}")
+            wandb_parts.append("resume=allow")
+            wandb_args = {
+                "wandb_args": ",".join(wandb_parts) if cfg.wandb_project else None
+            }
+            ctx["eval_runs"].append(
+                {
+                    "name": run.name if run is not None else "default",
+                    "ckpt_step": ckpt_step,
+                    "output_path": str(run_output_path),
+                    "env_vars": run.env_vars if run is not None else {},
+                    "lm_eval_args_lines": lm_eval_flags.to_shell_lines(
+                        _lm_eval_args(cfg, ckpt_step, run_output_path, run)
+                    ),
+                    "wandb_args_line": next(
+                        iter(lm_eval_flags.to_shell_lines(wandb_args)), ""
+                    ),
+                }
+            )
     return tmpl.render(ctx)
+
+
+def _render(
+    cfg: MegatronEvalConfig,
+    ckpt_step: int,
+    dependency_singleton: bool,
+    consumed_tokens: int | None = None,
+) -> str:
+    return _render_checkpoints(
+        cfg, ((ckpt_step, consumed_tokens),), dependency_singleton
+    )
 
 
 def _sbatch(script: str, reservation: str, exclude: str) -> str:
@@ -298,6 +394,25 @@ def render_watcher_script(
     return script_path
 
 
+def _submit_checkpoints(
+    cfg: MegatronEvalConfig,
+    checkpoints: tuple[tuple[int, int | None], ...],
+    dependency_singleton: bool,
+) -> str:
+    (Path(cfg.log_dir).expanduser() / cfg.model_name).mkdir(
+        parents=True, exist_ok=True
+    )
+    job_id = _sbatch(
+        _render_checkpoints(cfg, checkpoints, dependency_singleton),
+        cfg.reservation,
+        cfg.exclude,
+    )
+    steps = ",".join(str(step) for step, _ in checkpoints)
+    label = f"step={steps}" if len(checkpoints) == 1 else f"steps={steps}"
+    print(f"  {cfg.model_name} {label}: submitted → job {job_id}")
+    return job_id
+
+
 def submit(
     cfg: MegatronEvalConfig,
     ckpt_step: int,
@@ -305,18 +420,46 @@ def submit(
     consumed_tokens: int | None = None,
 ) -> str:
     """Submit one checkpoint, optionally using consumed tokens as the W&B x-axis."""
-    (Path(cfg.log_dir).expanduser() / cfg.model_name).mkdir(
-        parents=True, exist_ok=True
+    return _submit_checkpoints(
+        cfg, ((ckpt_step, consumed_tokens),), dependency_singleton
     )
-    script = _render(
-        cfg,
-        ckpt_step,
-        dependency_singleton,
-        consumed_tokens=consumed_tokens,
+
+
+def submit_evaluations(
+    cfg: MegatronEvalConfig,
+    ckpt_steps: list[int] | tuple[int, ...],
+    checkpoint_mode: AllocationMode = AllocationMode.SEPARATE,
+    eval_mode: AllocationMode = AllocationMode.SHARED,
+    dependency_singleton: bool = False,
+    consumed_tokens: Mapping[int, int] | None = None,
+) -> list[str]:
+    """Submit the checkpoint/eval-run matrix with independent job grouping."""
+    steps = tuple(ckpt_steps)
+    if not steps:
+        raise ValueError("ckpt_steps must not be empty")
+    if len(set(steps)) != len(steps):
+        raise ValueError("ckpt_steps must be unique")
+    checkpoint_groups = (
+        (steps,)
+        if checkpoint_mode == AllocationMode.SHARED
+        else tuple((step,) for step in steps)
     )
-    job_id = _sbatch(script, cfg.reservation, cfg.exclude)
-    print(f"  {cfg.model_name} step={ckpt_step}: submitted → job {job_id}")
-    return job_id
+    config_groups = (
+        [cfg]
+        if eval_mode == AllocationMode.SHARED or not cfg.eval_runs
+        else [dataclasses.replace(cfg, eval_runs=[run]) for run in cfg.eval_runs]
+    )
+    tokens = consumed_tokens or {}
+    job_ids: list[str] = []
+    for checkpoint_group in checkpoint_groups:
+        checkpoints = tuple((step, tokens.get(step)) for step in checkpoint_group)
+        for grouped_cfg in config_groups:
+            job_ids.append(
+                _submit_checkpoints(
+                    grouped_cfg, checkpoints, dependency_singleton
+                )
+            )
+    return job_ids
 
 
 def submit_range(
@@ -327,19 +470,30 @@ def submit_range(
     mode: RangeMode = RangeMode.PARALLEL,
     global_batch_size: int | None = None,
     seq_length: int | None = None,
+    checkpoint_mode: AllocationMode = AllocationMode.SEPARATE,
+    eval_mode: AllocationMode = AllocationMode.SHARED,
 ) -> list[str]:
     """Submit eval jobs for checkpoints in [start, end] (inclusive) with the given step.
 
     PARALLEL: all jobs submitted at once.
     SEQUENTIAL: each job has dependency=singleton so they queue behind each other.
     """
-    job_ids = []
-    for ckpt_step in range(start, end + 1, step):
-        job_id = submit(
-            cfg,
-            ckpt_step,
-            dependency_singleton=(mode == RangeMode.SEQUENTIAL),
-            consumed_tokens=global_batch_size * ckpt_step * seq_length if global_batch_size is not None and seq_length is not None else None,
-        )
-        job_ids.append(job_id)
-    return job_ids
+    if step <= 0:
+        raise ValueError("step must be greater than zero")
+    ckpt_steps = tuple(range(start, end + 1, step))
+    consumed_tokens = (
+        {
+            ckpt_step: global_batch_size * ckpt_step * seq_length
+            for ckpt_step in ckpt_steps
+        }
+        if global_batch_size is not None and seq_length is not None
+        else None
+    )
+    return submit_evaluations(
+        cfg,
+        ckpt_steps,
+        checkpoint_mode=checkpoint_mode,
+        eval_mode=eval_mode,
+        dependency_singleton=(mode == RangeMode.SEQUENTIAL),
+        consumed_tokens=consumed_tokens,
+    )

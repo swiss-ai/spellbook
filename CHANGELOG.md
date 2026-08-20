@@ -6,6 +6,9 @@ Notable changes to Spellbook are documented here.
 
 ### Added
 
+- Configurable checkpoint/evaluation grouping for Megatron jobs, allowing each
+  axis to use shared or separate allocations while retaining per-run outputs,
+  environments, and WandB names and IDs.
 - A configurable multi-node vLLM evaluation launcher for prebuilt runtimes and
   Hugging Face checkpoints, supporting both one-task-per-node torchrun and
   one-task-per-GPU Slurm launches.
