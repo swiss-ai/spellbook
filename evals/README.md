@@ -56,6 +56,19 @@ Git hfconverter sources use locked caches below `${SCRATCH}/tmp` (or `~/.cache/s
 `launch_mode="torchrun"` starts one Slurm task per node while `launch_mode="tasks"` starts one NUMA-bound task per GPU; the runner receives the common model, tokenizer, task, batch, length, and output arguments.
 The user supplies prebuilt converter and vLLM images; Spellbook only submits conversion and evaluation jobs, writing results below `<output_dir>/<model_name>`.
 
+### Verified environment
+
+The hfconverter image and 3B Stage-2 conversion were verified on **2026-08-20** with:
+
+- hfconverter: `2e1e94fd60164ed83b7f1f0251eb30c0ca4c67a5` (`apertus2/main`)
+- Megatron-LM-MoE fork used for the image smoke test: `60a7102cfddaa1f366fef9ac944b9d962db9553a`
+- image: `/iopsstor/scratch/cscs/anowak/images/apertus2-hf.sqsh`
+- test checkpoint: `chonk-3b-parameter-collapse-gbs512-row-fan-in-split-fc1-polar-express/iter_0001907`
+- result: conversion and `VERIFY_LOAD=1` completed successfully
+
+Treat later hfconverter or Megatron changes as unverified until the conversion
+smoke test is repeated.
+
 ## Megatron-LM
 
 Megatron evaluation uses
