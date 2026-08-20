@@ -1,1 +1,1 @@
-"""Evaluation helpers for Megatron-LM checkpoints."""
+"""Slurm helpers for HF conversion, Megatron-LM evaluation, and vLLM."""

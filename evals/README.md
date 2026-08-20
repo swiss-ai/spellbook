@@ -1,20 +1,65 @@
 # Evals
 
-Megatron-LM evaluation runner using [lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness).
+Slurm evaluation runners for Megatron-LM and vLLM.
 
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `megatron_eval.py` | Core dataclass (`MegatronEvalConfig`) and submission functions |
-| `megatron_eval.sh.j2` | Jinja2 template for the eval sbatch script |
+| `hf_conversion.py` | hfconverter Stage-2 submission helper |
+| `megatron_eval.py` | Megatron dataclass and submission functions |
+| `megatron_eval.sh.j2` | Jinja2 template for the Megatron eval sbatch script |
+| `vllm_eval.py` | vLLM dataclass, renderer, and submission function |
+| `vllm_eval.sh.j2` | Jinja2 template for multi-node vLLM eval launches |
 | `watcher.py` | One-shot checkpoint checker + `start` command for the self-scheduling watcher |
 | `watcher.sh.j2` | Jinja2 template for the self-scheduling watcher sbatch script |
 
 Per-model configs are deployment-specific and should live in the repository that
 owns the experiments and checkpoint paths, rather than in Spellbook itself.
 
-## Quick start
+## vLLM
+
+```python
+from evals.hf_conversion import HFConversionConfig, submit as submit_conversion
+from evals.vllm_eval import VLLMEvalConfig, submit as submit_eval
+
+hf_model = "/path/to/hf-checkpoint"
+conversion_job = submit_conversion(HFConversionConfig(
+    hfconverter_root="https://github.com/swiss-ai/hfconverter.git",
+    hfconverter_commit="apertus2/main",
+    checkpoint_dir="/path/to/torch_dist/iter_0003000",
+    output_dir=hf_model,
+    tokenizer_dir="/path/to/tokenizer",
+    account="infra01",
+    partition="normal",
+))
+
+submit_eval(VLLMEvalConfig(
+    model_name="apertus-8b-step-3000",
+    model=hf_model,
+    tokenizer="/path/to/tokenizer",
+    runner="/path/to/run_vllm_eval.py",
+    tasks=["hellaswag", "arc_easy"],
+    output_dir="/path/to/results",
+    account="infra01",
+    partition="normal",
+    nodes=1,
+    gpus_per_node=4,
+    container_edf="apertus2-vllm",
+    container_mounts="${SCRATCH}:${SCRATCH},${HOME}:${HOME}",
+    srun_extra_args="--network=disable_rdzv_get",
+    conversion_job_id=conversion_job or "",
+))
+```
+
+Git hfconverter sources use locked caches below `${SCRATCH}/tmp` (or `~/.cache/spellbook/tmp`), completed conversions are reused, and `recreate=True` explicitly replaces partial or completed outputs.
+`launch_mode="torchrun"` starts one Slurm task per node while `launch_mode="tasks"` starts one NUMA-bound task per GPU; the runner receives the common model, tokenizer, task, batch, length, and output arguments.
+The user supplies prebuilt converter and vLLM images; Spellbook only submits conversion and evaluation jobs, writing results below `<output_dir>/<model_name>`.
+
+## Megatron-LM
+
+Megatron evaluation uses
+[lm-evaluation-harness](https://github.com/EleutherAI/lm-evaluation-harness).
 
 ### Submit a single checkpoint
 

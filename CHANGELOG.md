@@ -4,6 +4,15 @@ Notable changes to Spellbook are documented here.
 
 ## Unreleased
 
+### Added
+
+- A configurable multi-node vLLM evaluation launcher for prebuilt runtimes and
+  Hugging Face checkpoints, supporting both one-task-per-node torchrun and
+  one-task-per-GPU Slurm launches.
+- A fixed-interface hfconverter Stage-2 submission helper with local or Git URL
+  sources, locked refreshed checkout caches, optional commit pinning,
+  completed-output reuse, explicit recreation, and vLLM job dependencies.
+
 ## 0.2.0 - 2026-08-06
 
 ### Added

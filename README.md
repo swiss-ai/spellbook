@@ -212,6 +212,8 @@ Important fields:
 - `MegatronExperiment.data_args_path`: use an existing Megatron data-path manifest without discovery. Configuring it suppresses the missing-data warning. Explicit `data_path` takes precedence over `data_args_path`, and `data_args_path` takes precedence over `base_data_path`.
 - `MegatronEvalConfig.megatron_path`: uses the same container-local `/opt` copy behavior for evaluation jobs.
 - `MegatronEvalConfig.install_commands`: raw shell commands run once per node inside the eval `srun` shell before `lm_eval` starts; sibling ranks wait for the local install to finish. Use this for per-eval package installation.
+- `HFConversionConfig`: submits a local or Git-backed hfconverter checkout's Stage-2 CLI, using refreshed locked caches and commit-specific worktrees for URLs, and reusing completed HF outputs unless explicit recreation is requested.
+- `VLLMEvalConfig`: launches a configurable vLLM evaluation runner against an HF model using either one Slurm task per node with torchrun workers or one Slurm task per GPU. It can depend on a newly submitted conversion job. See [`evals/README.md`](evals/README.md#vllm).
 
 `srun_extra_args` is not the same as `extra`.
 
