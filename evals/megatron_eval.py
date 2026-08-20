@@ -350,10 +350,14 @@ def render_watcher_script(
     interval_hours: float = 1,
     project_dir: Path | None = None,
     watch_checkpoint_dir: str | None = None,
+    config_model: str | None = None,
+    consumed_tokens_per_step: int | None = None,
 ) -> Path:
     """Render evals/<model>/watcher.sh — the self-scheduling sbatch watcher."""
     if interval_hours <= 0:
         raise ValueError("interval_hours must be greater than zero")
+    if consumed_tokens_per_step is not None and consumed_tokens_per_step <= 0:
+        raise ValueError("consumed_tokens_per_step must be greater than zero")
     if project_dir is None:
         project_dir = Path(__file__).resolve().parent.parent
     output_dir = project_dir / "evals" / cfg.model_name
@@ -385,6 +389,8 @@ def render_watcher_script(
         "watch_checkpoint_dir": str(checkpoint_dir),
         "stop_file": str(stop_file),
         "config_path": str(Path(config_path).resolve()),
+        "config_model": config_model,
+        "consumed_tokens_per_step": consumed_tokens_per_step,
         "project_dir": str(project_dir),
         "watcher_script_path": str(script_path),
         "interval_minutes": round(interval_hours * 60),

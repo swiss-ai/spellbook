@@ -305,6 +305,20 @@ uv run python -m evals.watcher start \
     --interval 1
 ```
 
+A config may expose either a module-level `cfg`, or a reusable
+`build_eval_config(model_name)` factory selected with `--model`:
+
+```bash
+uv run python -m evals.watcher start \
+    --config /path/to/evaluate_models.py \
+    --model exact-model-name \
+    --consumed-tokens-per-step 2097152 \
+    --interval 1
+```
+
+`--consumed-tokens-per-step` is optional. When set, the watcher records
+`checkpoint_step * consumed_tokens_per_step` as W&B consumed-token metadata.
+
 This renders `evals/<model_name>/watcher.sh` and submits the first job. Submitted step numbers are recorded in `evals/state_files/<model_name>/.submitted_steps` so re-runs are idempotent.
 
 ### Stop

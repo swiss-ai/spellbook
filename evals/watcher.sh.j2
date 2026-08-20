@@ -56,6 +56,6 @@ fi
 
 echo "[$(date -Is)] New checkpoint: step ${STEP}. Submitting eval..."
 cd "{{ project_dir }}"
-uv run python -m evals.watcher --config "{{ config_path }}" --step "$STEP"
+uv run python -m evals.watcher --config "{{ config_path }}"{% if config_model %} --model "{{ config_model }}"{% endif %}{% if consumed_tokens_per_step %} --consumed-tokens-per-step {{ consumed_tokens_per_step }}{% endif %} --step "$STEP"
 echo "$STEP" >> "$STATE_FILE"
 echo "[$(date -Is)] Eval submitted for step ${STEP}."

@@ -16,7 +16,7 @@ from evals.megatron_eval import (
     submit,
     submit_evaluations,
 )
-from evals.watcher import _load_config, cmd_start, cmd_stop
+from evals.watcher import _consumed_tokens, _load_config, cmd_start, cmd_stop
 
 
 def _config(megatron_path: str, megatron_commit: str = "") -> MegatronEvalConfig:
@@ -277,6 +277,8 @@ class MegatronPathTest(unittest.TestCase):
                 config_path=str(root / "config.py"),
                 project_dir=root,
                 watch_checkpoint_dir=str(watch_dir),
+                config_model="selected",
+                consumed_tokens_per_step=2048,
             )
 
             script = script_path.read_text()
@@ -295,10 +297,17 @@ class MegatronPathTest(unittest.TestCase):
             )
             self.assertTrue((root / cfg.log_dir / cfg.model_name).is_dir())
             self.assertIn("Stop requested — watcher will not be rescheduled", script)
+            self.assertIn('--model "selected"', script)
+            self.assertIn("--consumed-tokens-per-step 2048", script)
 
     def test_watcher_start_passes_checkpoint_override(self) -> None:
         cfg = _config("/path/to/Megatron-LM")
-        args = argparse.Namespace(config="config.py", interval=0.5)
+        args = argparse.Namespace(
+            config="config.py",
+            interval=0.5,
+            model=None,
+            consumed_tokens_per_step=None,
+        )
         completed = subprocess.CompletedProcess(
             ["sbatch"], returncode=0, stdout="Submitted batch job 123\n", stderr=""
         )
@@ -317,7 +326,7 @@ class MegatronPathTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _config("/path/to/Megatron-LM")
             stop_file = Path(tmp) / ".watcher_stop"
-            args = argparse.Namespace(config="config.py")
+            args = argparse.Namespace(config="config.py", model=None)
             completed = subprocess.CompletedProcess(
                 ["scancel"], returncode=0, stdout="", stderr=""
             )
@@ -353,6 +362,28 @@ class MegatronPathTest(unittest.TestCase):
             cfg, _ = _load_config(str(config_path))
 
             self.assertEqual(cfg.model_name, "external")
+
+    def test_watcher_computes_consumed_tokens(self) -> None:
+        self.assertEqual(_consumed_tokens(1907, 512 * 4096), 3_999_268_864)
+        self.assertIsNone(_consumed_tokens(1907, None))
+        with self.assertRaises(ValueError):
+            _consumed_tokens(1907, 0)
+
+    def test_external_config_can_build_selected_model(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "config.py"
+            config_path.write_text(
+                "from evals.megatron_eval import MegatronEvalConfig\n"
+                "def build_eval_config(model_name):\n"
+                "    return MegatronEvalConfig(\n"
+                "        model_name=model_name, checkpoint_dir='/c',\n"
+                "        tokenizer_model='tok', megatron_path='/m',\n"
+                "    )\n"
+            )
+
+            cfg, _ = _load_config(str(config_path), "selected")
+
+            self.assertEqual(cfg.model_name, "selected")
 
 
 if __name__ == "__main__":
