@@ -121,7 +121,10 @@ def cmd_check(args: argparse.Namespace) -> None:
     cfg, watch_dir_override, state_dir = _load_config(
         args.config, args.model, group_name
     )
-    if group_name is not None:
+    eval_job_name = getattr(args, "eval_job_name", None)
+    if eval_job_name is not None:
+        os.environ["SBATCH_JOB_NAME"] = eval_job_name
+    elif group_name is not None:
         os.environ["SBATCH_JOB_NAME"] = f"eval_{_watcher_name(cfg, group_name)}"
 
     if args.step is not None:
@@ -185,6 +188,7 @@ def cmd_start(args: argparse.Namespace) -> None:
         watch_checkpoint_dir=watch_dir_override,
         config_model=args.model,
         config_group=group_name,
+        eval_job_name=getattr(args, "eval_job_name", None),
         consumed_tokens_per_step=args.consumed_tokens_per_step,
         dependency_singleton=getattr(args, "dependency_singleton", False),
         watch_state_dir=state_dir,
@@ -234,6 +238,7 @@ def main() -> None:
     parser.add_argument("--step", type=int, default=None, help="Submit this specific step (skips state-file check)")
     parser.add_argument("--model", help="Model passed to build_eval_config(model_name)")
     parser.add_argument("--group", help="Group passed to build_eval_config(model_name, group)")
+    parser.add_argument("--eval-job-name", help="Slurm job name for submitted evaluations")
     parser.add_argument(
         "--dependency-singleton",
         action="store_true",
@@ -252,6 +257,7 @@ def main() -> None:
     p_start.add_argument("--config", required=True, help="Path to eval config .py file")
     p_start.add_argument("--model", help="Model passed to build_eval_config(model_name)")
     p_start.add_argument("--group", help="Group passed to build_eval_config(model_name, group)")
+    p_start.add_argument("--eval-job-name", help="Slurm job name for submitted evaluations")
     p_start.add_argument(
         "--dependency-singleton",
         action="store_true",

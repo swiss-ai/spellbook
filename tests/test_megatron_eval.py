@@ -332,6 +332,7 @@ class MegatronPathTest(unittest.TestCase):
                 project_dir=root,
                 config_model="selected",
                 config_group="coding",
+                eval_job_name="eval_5b_coding",
                 consumed_tokens_per_step=2048,
                 dependency_singleton=True,
                 watch_state_dir=str(state_dir),
@@ -348,6 +349,7 @@ class MegatronPathTest(unittest.TestCase):
                 str(state_dir / watcher_name / ".submitted_steps"), script
             )
             self.assertIn('--group "coding"', script)
+            self.assertIn('--eval-job-name "eval_5b_coding"', script)
             self.assertIn("--dependency-singleton", script)
 
     def test_watcher_start_passes_checkpoint_override(self) -> None:
