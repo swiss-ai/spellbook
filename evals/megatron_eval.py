@@ -304,6 +304,11 @@ def _render_checkpoints(
                     "name": run.name if run is not None else "default",
                     "ckpt_step": ckpt_step,
                     "output_path": str(run_output_path),
+                    "checkpoint_path": str(
+                        Path(cfg.checkpoint_dir)
+                        / cfg.model_name
+                        / f"iter_{ckpt_step:07d}"
+                    ),
                     "env_vars": run.env_vars if run is not None else {},
                     "lm_eval_args_lines": lm_eval_flags.to_shell_lines(
                         _lm_eval_args(cfg, ckpt_step, run_output_path, run)

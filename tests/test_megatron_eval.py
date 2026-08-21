@@ -250,6 +250,10 @@ class MegatronPathTest(unittest.TestCase):
         self.assertIn("step_20/second", script)
         self.assertIn("consumed_tokens=1000", script)
         self.assertIn("consumed_tokens=2000", script)
+        self.assertIn("/checkpoints/model/iter_0000010/common.pt", script)
+        self.assertIn("/checkpoints/model/iter_0000020/common.pt", script)
+        self.assertIn('state.get("num_floating_point_operations_so_far")', script)
+        self.assertIn('WANDB_ARGS[1]="${WANDB_ARGS[1]},total_flops=${TOTAL_FLOPS}"', script)
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
 
     def test_eval_run_names_are_unique_and_renderer_arguments_win(self) -> None:
