@@ -100,6 +100,7 @@ class MegatronEvalConfig:
     reservation: str = ""
     exclude: str = ""                 # Slurm node list passed to --exclude
     log_dir: str = "slurm_logs/eval"
+    watcher_dir: str = ""             # generated watcher scripts; defaults to <project>/evals
 
     # --- Container ---
     container_edf: str = ""          # e.g. "apertus2-alps4-temp"
@@ -394,7 +395,12 @@ def render_watcher_script(
         if config_group is None
         else f"{cfg.model_name}-{config_group}"
     )
-    output_dir = project_dir / "evals" / watcher_name
+    output_root = (
+        Path(cfg.watcher_dir).expanduser()
+        if cfg.watcher_dir
+        else project_dir / "evals"
+    )
+    output_dir = output_root / watcher_name
     output_dir.mkdir(parents=True, exist_ok=True)
     script_path = output_dir / "watcher.sh"
     log_dir = Path(cfg.log_dir).expanduser()

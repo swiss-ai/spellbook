@@ -325,6 +325,24 @@ class MegatronPathTest(unittest.TestCase):
             self.assertIn('--model "selected"', script)
             self.assertIn("--consumed-tokens-per-step 2048", script)
 
+    def test_watcher_script_directory_is_configurable(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = _config("/path/to/Megatron-LM")
+            cfg.watcher_dir = str(root / "runtime" / "watchers")
+
+            script_path = render_watcher_script(
+                cfg,
+                config_path=str(root / "config.py"),
+                project_dir=root,
+            )
+
+            self.assertEqual(
+                script_path,
+                Path(cfg.watcher_dir) / cfg.model_name / "watcher.sh",
+            )
+            self.assertIn(f'THIS_SCRIPT="{script_path}"', script_path.read_text())
+
     def test_grouped_watcher_uses_distinct_identity_and_forwards_group(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
