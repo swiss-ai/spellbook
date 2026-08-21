@@ -371,7 +371,9 @@ def render_watcher_script(
     project_dir: Path | None = None,
     watch_checkpoint_dir: str | None = None,
     config_model: str | None = None,
+    config_group: str | None = None,
     consumed_tokens_per_step: int | None = None,
+    dependency_singleton: bool = False,
     watch_state_dir: str | None = None,
 ) -> Path:
     """Render evals/<model>/watcher.sh — the self-scheduling sbatch watcher."""
@@ -381,13 +383,18 @@ def render_watcher_script(
         raise ValueError("consumed_tokens_per_step must be greater than zero")
     if project_dir is None:
         project_dir = Path(__file__).resolve().parent.parent
-    output_dir = project_dir / "evals" / cfg.model_name
+    watcher_name = (
+        cfg.model_name
+        if config_group is None
+        else f"{cfg.model_name}-{config_group}"
+    )
+    output_dir = project_dir / "evals" / watcher_name
     output_dir.mkdir(parents=True, exist_ok=True)
     script_path = output_dir / "watcher.sh"
     log_dir = Path(cfg.log_dir).expanduser()
     if not log_dir.is_absolute():
         log_dir = project_dir / log_dir
-    (log_dir / cfg.model_name).mkdir(parents=True, exist_ok=True)
+    (log_dir / watcher_name).mkdir(parents=True, exist_ok=True)
 
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),
@@ -405,19 +412,22 @@ def render_watcher_script(
         if watch_state_dir
         else project_dir / "evals" / "state_files"
     )
-    stop_file = state_dir / cfg.model_name / ".watcher_stop"
+    stop_file = state_dir / watcher_name / ".watcher_stop"
     ctx = {
         "model_name": cfg.model_name,
+        "watcher_name": watcher_name,
         "account": cfg.account,
         "partition": cfg.partition,
         "log_dir": str(log_dir.resolve()),
         "reservation": cfg.reservation,
         "watch_checkpoint_dir": str(checkpoint_dir),
         "stop_file": str(stop_file),
-        "state_file": str(state_dir / cfg.model_name / ".submitted_steps"),
+        "state_file": str(state_dir / watcher_name / ".submitted_steps"),
         "config_path": str(Path(config_path).resolve()),
         "config_model": config_model,
+        "config_group": config_group,
         "consumed_tokens_per_step": consumed_tokens_per_step,
+        "dependency_singleton": dependency_singleton,
         "project_dir": str(project_dir),
         "watcher_script_path": str(script_path),
         "interval_minutes": round(interval_hours * 60),

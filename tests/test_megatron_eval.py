@@ -321,6 +321,35 @@ class MegatronPathTest(unittest.TestCase):
             self.assertIn('--model "selected"', script)
             self.assertIn("--consumed-tokens-per-step 2048", script)
 
+    def test_grouped_watcher_uses_distinct_identity_and_forwards_group(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            cfg = _config("/path/to/Megatron-LM")
+            state_dir = root / "state"
+            script_path = render_watcher_script(
+                cfg,
+                config_path=str(root / "config.py"),
+                project_dir=root,
+                config_model="selected",
+                config_group="coding",
+                consumed_tokens_per_step=2048,
+                dependency_singleton=True,
+                watch_state_dir=str(state_dir),
+            )
+
+            watcher_name = f"{cfg.model_name}-coding"
+            script = script_path.read_text()
+            self.assertEqual(
+                script_path,
+                root / "evals" / watcher_name / "watcher.sh",
+            )
+            self.assertIn(f"#SBATCH --job-name=watcher_{watcher_name}", script)
+            self.assertIn(
+                str(state_dir / watcher_name / ".submitted_steps"), script
+            )
+            self.assertIn('--group "coding"', script)
+            self.assertIn("--dependency-singleton", script)
+
     def test_watcher_start_passes_checkpoint_override(self) -> None:
         cfg = _config("/path/to/Megatron-LM")
         args = argparse.Namespace(
@@ -386,6 +415,22 @@ class MegatronPathTest(unittest.TestCase):
             cfg, _, _ = _load_config(str(config_path))
 
             self.assertEqual(cfg.model_name, "external")
+
+    def test_external_config_can_build_selected_model_and_group(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "config.py"
+            config_path.write_text(
+                "from evals.megatron_eval import MegatronEvalConfig\n"
+                "def build_eval_config(model_name, group_name):\n"
+                "    return MegatronEvalConfig(\n"
+                "        model_name=f'{model_name}-{group_name}', checkpoint_dir='/c',\n"
+                "        tokenizer_model='tok', megatron_path='/m',\n"
+                "    )\n"
+            )
+
+            cfg, _, _ = _load_config(str(config_path), "selected", "coding")
+
+            self.assertEqual(cfg.model_name, "selected-coding")
 
     def test_watcher_computes_consumed_tokens(self) -> None:
         self.assertEqual(_consumed_tokens(1907, 512 * 4096), 3_999_268_864)

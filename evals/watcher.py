@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -33,6 +34,7 @@ from evals.megatron_eval import MegatronEvalConfig, render_watcher_script, submi
 def _load_config(
     config_path: str,
     model_name: str | None = None,
+    group_name: str | None = None,
 ) -> tuple[MegatronEvalConfig, str | None, str | None]:
     path = Path(config_path).resolve()
     spec = importlib.util.spec_from_file_location("_eval_config", path)
@@ -49,7 +51,11 @@ def _load_config(
     if cfg is None and model_name is not None:
         builder = getattr(mod, "build_eval_config", None)
         if callable(builder):
-            cfg = builder(model_name)
+            cfg = (
+                builder(model_name, group_name)
+                if group_name is not None
+                else builder(model_name)
+            )
     if not isinstance(cfg, MegatronEvalConfig):
         print(
             f"ERROR: {config_path} must define `cfg: MegatronEvalConfig` or "
@@ -73,12 +79,17 @@ def _latest_step(checkpoint_dir: Path) -> int | None:
     return int(text)
 
 
+def _watcher_name(cfg: MegatronEvalConfig, group_name: str | None = None) -> str:
+    return cfg.model_name if group_name is None else f"{cfg.model_name}-{group_name}"
+
+
 def _state_file(
     cfg: MegatronEvalConfig,
     state_dir: str | None = None,
+    group_name: str | None = None,
 ) -> Path:
     root = Path(state_dir) if state_dir else Path("evals") / "state_files"
-    return root / cfg.model_name / ".submitted_steps"
+    return root / _watcher_name(cfg, group_name) / ".submitted_steps"
 
 
 def _submitted_steps(state: Path) -> set[int]:
@@ -106,13 +117,19 @@ def _consumed_tokens(step: int, tokens_per_step: int | None) -> int | None:
 
 
 def cmd_check(args: argparse.Namespace) -> None:
-    cfg, watch_dir_override, state_dir = _load_config(args.config, args.model)
+    group_name = getattr(args, "group", None)
+    cfg, watch_dir_override, state_dir = _load_config(
+        args.config, args.model, group_name
+    )
+    if group_name is not None:
+        os.environ["SBATCH_JOB_NAME"] = f"eval_{_watcher_name(cfg, group_name)}"
 
     if args.step is not None:
         # Called from watcher.sh with the step already validated by bash.
         submit(
             cfg,
             args.step,
+            dependency_singleton=getattr(args, "dependency_singleton", False),
             consumed_tokens=_consumed_tokens(
                 args.step, args.consumed_tokens_per_step
             ),
@@ -125,7 +142,7 @@ def cmd_check(args: argparse.Namespace) -> None:
         print(f"No completed checkpoint found in {ckpt_dir} — nothing to do.")
         return
 
-    state = _state_file(cfg, state_dir)
+    state = _state_file(cfg, state_dir, group_name)
     submitted = _submitted_steps(state)
 
     if latest in submitted:
@@ -136,6 +153,7 @@ def cmd_check(args: argparse.Namespace) -> None:
     submit(
         cfg,
         latest,
+        dependency_singleton=getattr(args, "dependency_singleton", False),
         consumed_tokens=_consumed_tokens(latest, args.consumed_tokens_per_step),
     )
     _record_step(state, latest)
@@ -145,15 +163,19 @@ def _watcher_stop_file(
     cfg: MegatronEvalConfig,
     project_dir: Path,
     state_dir: str | None = None,
+    group_name: str | None = None,
 ) -> Path:
     root = Path(state_dir) if state_dir else project_dir / "evals" / "state_files"
-    return root / cfg.model_name / ".watcher_stop"
+    return root / _watcher_name(cfg, group_name) / ".watcher_stop"
 
 
 def cmd_start(args: argparse.Namespace) -> None:
-    cfg, watch_dir_override, state_dir = _load_config(args.config, args.model)
+    group_name = getattr(args, "group", None)
+    cfg, watch_dir_override, state_dir = _load_config(
+        args.config, args.model, group_name
+    )
     project_dir = Path(__file__).resolve().parent.parent
-    stop_file = _watcher_stop_file(cfg, project_dir, state_dir)
+    stop_file = _watcher_stop_file(cfg, project_dir, state_dir, group_name)
     stop_file.unlink(missing_ok=True)
     script_path = render_watcher_script(
         cfg,
@@ -162,7 +184,9 @@ def cmd_start(args: argparse.Namespace) -> None:
         project_dir=project_dir,
         watch_checkpoint_dir=watch_dir_override,
         config_model=args.model,
+        config_group=group_name,
         consumed_tokens_per_step=args.consumed_tokens_per_step,
+        dependency_singleton=getattr(args, "dependency_singleton", False),
         watch_state_dir=state_dir,
     )
     result = subprocess.run(
@@ -178,24 +202,27 @@ def cmd_start(args: argparse.Namespace) -> None:
     stop_command = f"uv run python -m evals.watcher stop --config {args.config}"
     if args.model:
         stop_command += f" --model {args.model}"
+    if group_name:
+        stop_command += f" --group {group_name}"
     print(f"Stop with: {stop_command}")
 
 
 def cmd_stop(args: argparse.Namespace) -> None:
-    cfg, _, state_dir = _load_config(args.config, args.model)
+    group_name = getattr(args, "group", None)
+    cfg, _, state_dir = _load_config(args.config, args.model, group_name)
     project_dir = Path(__file__).resolve().parent.parent
-    stop_file = _watcher_stop_file(cfg, project_dir, state_dir)
+    stop_file = _watcher_stop_file(cfg, project_dir, state_dir, group_name)
     stop_file.parent.mkdir(parents=True, exist_ok=True)
     stop_file.touch()
     result = subprocess.run(
-        ["scancel", f"--name=watcher_{cfg.model_name}"],
+        ["scancel", f"--name=watcher_{_watcher_name(cfg, group_name)}"],
         capture_output=True,
         text=True,
         check=False,
     )
     if result.returncode != 0:
         print(result.stderr.strip(), file=sys.stderr)
-    print(f"Watcher stop requested for {cfg.model_name}.")
+    print(f"Watcher stop requested for {_watcher_name(cfg, group_name)}.")
 
 
 def main() -> None:
@@ -206,6 +233,12 @@ def main() -> None:
     parser.add_argument("--config", help="Path to eval config .py file")
     parser.add_argument("--step", type=int, default=None, help="Submit this specific step (skips state-file check)")
     parser.add_argument("--model", help="Model passed to build_eval_config(model_name)")
+    parser.add_argument("--group", help="Group passed to build_eval_config(model_name, group)")
+    parser.add_argument(
+        "--dependency-singleton",
+        action="store_true",
+        help="Serialize eval submissions sharing the same model and group",
+    )
     parser.add_argument(
         "--consumed-tokens-per-step",
         type=int,
@@ -218,6 +251,12 @@ def main() -> None:
     )
     p_start.add_argument("--config", required=True, help="Path to eval config .py file")
     p_start.add_argument("--model", help="Model passed to build_eval_config(model_name)")
+    p_start.add_argument("--group", help="Group passed to build_eval_config(model_name, group)")
+    p_start.add_argument(
+        "--dependency-singleton",
+        action="store_true",
+        help="Serialize eval submissions sharing the same model and group",
+    )
     p_start.add_argument(
         "--consumed-tokens-per-step",
         type=int,
@@ -233,6 +272,7 @@ def main() -> None:
     p_stop = sub.add_parser("stop", help="Stop a self-scheduling watcher chain")
     p_stop.add_argument("--config", required=True, help="Path to eval config .py file")
     p_stop.add_argument("--model", help="Model passed to build_eval_config(model_name)")
+    p_stop.add_argument("--group", help="Group passed to build_eval_config(model_name, group)")
 
     args = parser.parse_args()
 

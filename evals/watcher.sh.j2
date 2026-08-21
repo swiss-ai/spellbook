@@ -1,13 +1,13 @@
 #!/bin/bash
-#SBATCH --job-name=watcher_{{ model_name }}
+#SBATCH --job-name=watcher_{{ watcher_name }}
 #SBATCH --account={{ account }}
 #SBATCH --partition={{ partition }}
 #SBATCH --time=00:10:00
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=1
-#SBATCH --output={{ log_dir }}/{{ model_name }}/watcher-%j.out
-#SBATCH --error={{ log_dir }}/{{ model_name }}/watcher-%j.err
+#SBATCH --output={{ log_dir }}/{{ watcher_name }}/watcher-%j.out
+#SBATCH --error={{ log_dir }}/{{ watcher_name }}/watcher-%j.err
 {%- if reservation %}
 #SBATCH --reservation={{ reservation }}
 {%- endif %}
@@ -56,6 +56,6 @@ fi
 
 echo "[$(date -Is)] New checkpoint: step ${STEP}. Submitting eval..."
 cd "{{ project_dir }}"
-uv run python -m evals.watcher --config "{{ config_path }}"{% if config_model %} --model "{{ config_model }}"{% endif %}{% if consumed_tokens_per_step %} --consumed-tokens-per-step {{ consumed_tokens_per_step }}{% endif %} --step "$STEP"
+uv run python -m evals.watcher --config "{{ config_path }}"{% if config_model %} --model "{{ config_model }}"{% endif %}{% if config_group %} --group "{{ config_group }}"{% endif %}{% if dependency_singleton %} --dependency-singleton{% endif %}{% if consumed_tokens_per_step %} --consumed-tokens-per-step {{ consumed_tokens_per_step }}{% endif %} --step "$STEP"
 echo "$STEP" >> "$STATE_FILE"
 echo "[$(date -Is)] Eval submitted for step ${STEP}."
