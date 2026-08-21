@@ -177,7 +177,7 @@ def cmd_start(args: argparse.Namespace) -> None:
     cfg, watch_dir_override, state_dir = _load_config(
         args.config, args.model, group_name
     )
-    project_dir = Path(__file__).resolve().parent.parent
+    project_dir = Path.cwd().resolve()
     stop_file = _watcher_stop_file(cfg, project_dir, state_dir, group_name)
     stop_file.unlink(missing_ok=True)
     script_path = render_watcher_script(
@@ -214,7 +214,7 @@ def cmd_start(args: argparse.Namespace) -> None:
 def cmd_stop(args: argparse.Namespace) -> None:
     group_name = getattr(args, "group", None)
     cfg, _, state_dir = _load_config(args.config, args.model, group_name)
-    project_dir = Path(__file__).resolve().parent.parent
+    project_dir = Path.cwd().resolve()
     stop_file = _watcher_stop_file(cfg, project_dir, state_dir, group_name)
     stop_file.parent.mkdir(parents=True, exist_ok=True)
     stop_file.touch()

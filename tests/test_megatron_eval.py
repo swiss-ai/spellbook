@@ -398,6 +398,7 @@ class MegatronPathTest(unittest.TestCase):
             cmd_start(args)
 
         self.assertEqual(render.call_args.kwargs["watch_checkpoint_dir"], "/override")
+        self.assertEqual(render.call_args.kwargs["project_dir"], Path.cwd().resolve())
 
     def test_watcher_stop_marks_chain_before_cancelling(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
