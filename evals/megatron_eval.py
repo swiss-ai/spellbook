@@ -327,6 +327,20 @@ def _render(
     )
 
 
+def _clean_sbatch_env() -> dict[str, str]:
+    """Submit jobs without leaking the caller's Python environment."""
+    env = os.environ.copy()
+    venv = env.pop("VIRTUAL_ENV", None)
+    env.pop("PYTHONPATH", None)
+    env.pop("PYTHONHOME", None)
+    if venv and "PATH" in env:
+        venv_bin = str(Path(venv) / "bin")
+        env["PATH"] = os.pathsep.join(
+            path for path in env["PATH"].split(os.pathsep) if path != venv_bin
+        )
+    return env
+
+
 def _sbatch(script: str, reservation: str, exclude: str) -> str:
     with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
         f.write(script)
@@ -338,7 +352,13 @@ def _sbatch(script: str, reservation: str, exclude: str) -> str:
         if reservation:
             cmd += [f"--reservation={reservation}"]
         cmd.append(tmp_path)
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=True,
+            env=_clean_sbatch_env(),
+        )
         return result.stdout.strip().split()[-1]
     finally:
         os.unlink(tmp_path)

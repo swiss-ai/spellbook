@@ -10,6 +10,7 @@ from evals.megatron_eval import (
     AllocationMode,
     LMEvalRunConfig,
     MegatronEvalConfig,
+    _clean_sbatch_env,
     _is_megatron_url,
     _render,
     render_watcher_script,
@@ -125,6 +126,25 @@ class MegatronPathTest(unittest.TestCase):
             script,
         )
 
+    def test_sbatch_does_not_inherit_python_environment(self) -> None:
+        with patch.dict(
+            "os.environ",
+            {
+                "PATH": "/project/.venv/bin:/usr/bin:/bin",
+                "VIRTUAL_ENV": "/project/.venv",
+                "PYTHONPATH": "/project/python",
+                "PYTHONHOME": "/project/python-home",
+                "WANDB_API_KEY": "keep-me",
+            },
+            clear=True,
+        ):
+            env = _clean_sbatch_env()
+
+        self.assertEqual(env["PATH"], "/usr/bin:/bin")
+        self.assertEqual(env["WANDB_API_KEY"], "keep-me")
+        self.assertNotIn("VIRTUAL_ENV", env)
+        self.assertNotIn("PYTHONPATH", env)
+        self.assertNotIn("PYTHONHOME", env)
 
     def test_dataset_prefetch_has_global_completion_barrier(self) -> None:
         cfg = _config("/path/to/Megatron-LM")
