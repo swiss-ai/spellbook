@@ -137,7 +137,8 @@ class MegatronPathTest(unittest.TestCase):
         self.assertLess(status, wait)
         self.assertLess(wait, offline)
         self.assertIn("Dataset prefetch failed with exit code", script)
-        self.assertIn("timeout --signal=TERM 1800s python3", script)
+        self.assertIn("timeout --signal=TERM 1800s python", script)
+        self.assertNotIn("timeout --signal=TERM 1800s python3", script)
         self.assertIn("Timed out waiting for dataset prefetch status", script)
 
     def test_missing_dotenv_file_is_allowed(self) -> None:

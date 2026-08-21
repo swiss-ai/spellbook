@@ -266,7 +266,7 @@ if [[ "${SLURM_PROCID}" == "0" ]]; then
   set +e
   (
     set -e
-    timeout --signal=TERM {{ prefetch_timeout_seconds }}s python3 << '"'"'PYEOF'"'"'
+    timeout --signal=TERM {{ prefetch_timeout_seconds }}s python << '"'"'PYEOF'"'"'
 from datasets import load_dataset
 {% for task, args in dataset_prefetch.items() %}
 load_dataset({{ args | map("tojson") | join(", ") }})
