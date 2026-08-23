@@ -6,6 +6,10 @@ Notable changes to Spellbook are documented here.
 
 ### Added
 
+- A multi-node, one-Slurm-task-per-GPU Megatron dynamic-inference HTTP server
+  launcher with dictionary-based Megatron arguments, per-node Quart/Hypercorn
+  installation, dynamic batching, CUDA graphs, and a dependency-free persistent
+  Python client.
 - Configurable checkpoint/evaluation grouping for Megatron jobs, allowing each
   axis to use shared or separate allocations while retaining per-run outputs,
   environments, and WandB names and IDs.

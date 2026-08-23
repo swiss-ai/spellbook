@@ -218,6 +218,37 @@ Important fields:
 
 `srun_extra_args` is not the same as `extra`.
 
+## Dynamic inference HTTP server
+
+[`inference/megatron_server.py`](inference/megatron_server.py) renders and submits Megatron's dynamic text-generation server as a multi-node Slurm job. It uses one Slurm task per GPU (no `torchrun`), installs Quart and Hypercorn once per node inside the containerized step, and enables dynamic batching and CUDA graphs. Checkpoint-specific configs belong in the experiment repository that owns the checkpoint.
+
+```python
+from inference.megatron_server import MegatronServerConfig, submit
+
+submit(MegatronServerConfig(
+    name="my-model-step-3000",
+    checkpoint="/path/to/checkpoints/my-model",
+    ckpt_step=3000,
+    tokenizer_model="/path/to/tokenizer",
+    megatron_path="/path/to/Megatron-LM",
+    expert_parallel_size=8,
+    nodes=2,
+    gpus_per_node=4,
+    account="infra01",
+    partition="normal",
+))
+```
+
+Interact with it using curl or the dependency-free Python client:
+
+```bash
+export INFERENCE_SERVER_URL="http://${COMPUTE_HOST}:5000"
+python -m inference.client health
+python -m inference.client interactive
+```
+
+See [`inference/examples/megatron_server.py`](inference/examples/megatron_server.py) for a complete placeholder configuration and [`inference/README.md`](inference/README.md) for container, tunnel, chat, and curl examples. The server has no built-in authentication.
+
 ## Locking experiments
 
 Once you are happy with a config, call `.lock()` to freeze it:

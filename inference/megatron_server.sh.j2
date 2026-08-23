@@ -1,0 +1,105 @@
+#!/bin/bash
+#SBATCH --nodes={{ nodes }}
+#SBATCH --account={{ account }}
+#SBATCH --partition={{ partition }}
+#SBATCH --ntasks-per-node={{ gpus_per_node }}
+#SBATCH --gpus-per-node={{ gpus_per_node }}
+#SBATCH --cpus-per-task={{ cpus_per_task }}
+#SBATCH --time={{ run_time }}
+#SBATCH --job-name=serve_{{ name }}
+#SBATCH --output={{ log_dir }}/{{ name }}/{{ name }}-%j.out
+#SBATCH --error={{ log_dir }}/{{ name }}/{{ name }}-%j.err
+#SBATCH --exclusive
+{%- if memory %}
+#SBATCH --mem={{ memory }}
+{%- endif %}
+{%- if reservation %}
+#SBATCH --reservation={{ reservation }}
+{%- endif %}
+{%- if exclude %}
+#SBATCH --exclude={{ exclude }}
+{%- endif %}
+
+set -e
+ulimit -c 0
+
+export MASTER_ADDR="$(scontrol show hostnames "$SLURM_JOB_NODELIST" | head -n 1)"
+export MASTER_PORT="${MASTER_PORT:-6800}"
+export WORLD_SIZE="${SLURM_NTASKS:-{{ total_tasks }}}"
+export SERVER_HOST="$(hostname)"
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+
+echo "Server node: ${SERVER_HOST}"
+echo "Health URL from the cluster: http://${SERVER_HOST}:{{ port }}/v1/health"
+
+srun \
+  --nodes={{ nodes }} \
+  --ntasks={{ total_tasks }} \
+  --ntasks-per-node={{ gpus_per_node }} \
+  --cpus-per-task={{ cpus_per_task }} \
+  --mpi=pmix \
+  --kill-on-bad-exit=1 \
+  -l \
+{%- if container_edf %}
+  --environment="{{ container_edf }}" \
+{%- endif %}
+{%- if container_mounts %}
+  --container-mounts="{{ container_mounts }}" \
+{%- endif %}
+{%- if srun_extra_args %}
+  {{ srun_extra_args }} \
+{%- endif %}
+  -u bash -lc '
+set -e
+ulimit -c 0
+
+export RANK="${SLURM_PROCID}"
+export LOCAL_RANK="${SLURM_LOCALID}"
+export WORLD_SIZE="${SLURM_NTASKS:-{{ total_tasks }}}"
+export MASTER_ADDR="${MASTER_ADDR}"
+export MASTER_PORT="${MASTER_PORT}"
+export PYTHONPATH={{ megatron_path_shell }}:"${PYTHONPATH:-}"
+export TOKENIZERS_PARALLELISM="False"
+export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
+export NCCL_NVLS_ENABLE="${NCCL_NVLS_ENABLE:-0}"
+export CUDA_DEVICE_MAX_CONNECTIONS="${CUDA_DEVICE_MAX_CONNECTIONS:-1}"
+
+export TRITON_HOME="/tmp/.triton/${SLURM_PROCID}"
+export TRITON_CACHE_DIR="${TRITON_HOME}/cache"
+export TORCHINDUCTOR_CACHE_DIR="/tmp/.torch_inductor/${SLURM_PROCID}"
+mkdir -p "${TRITON_CACHE_DIR}" "${TORCHINDUCTOR_CACHE_DIR}"
+
+{% for key, value in env_vars.items() %}
+export {{ key }}="{{ value }}"
+{%- endfor %}
+
+{% if install_commands %}
+# Container filesystems are shared by tasks on a node. Install once and make
+# sibling GPU tasks wait before importing the HTTP backend.
+INSTALL_STATUS="/tmp/spellbook-inference-install-${SLURM_JOB_ID}-${SLURM_STEP_ID:-0}.status"
+if [[ "${SLURM_LOCALID}" == "0" ]]; then
+  if (
+    set -e
+{{ install_commands }}
+  ); then
+    INSTALL_RC=0
+  else
+    INSTALL_RC=$?
+  fi
+  printf "%s\n" "${INSTALL_RC}" > "${INSTALL_STATUS}.tmp"
+  mv -f "${INSTALL_STATUS}.tmp" "${INSTALL_STATUS}"
+else
+  while [[ ! -f "${INSTALL_STATUS}" ]]; do sleep 1; done
+  INSTALL_RC="$(<"${INSTALL_STATUS}")"
+fi
+if [[ "${INSTALL_RC}" != "0" ]]; then
+  echo "Package installation failed with exit code ${INSTALL_RC}" >&2
+  exit "${INSTALL_RC}"
+fi
+{% endif %}
+
+cd {{ megatron_path_shell }}
+numactl --cpunodebind="${SLURM_LOCALID}" \
+  python \
+  {{ server_args | join(" \\\n  ") }}
+'
