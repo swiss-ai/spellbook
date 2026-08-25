@@ -5,10 +5,10 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from tools.merge import CheckpointMergeConfig, render, submit
+from tools.merge import MegatronCheckpointMergeConfig, render, submit
 
 
-def _config(**changes: Any) -> CheckpointMergeConfig:
+def _config(**changes: Any) -> MegatronCheckpointMergeConfig:
     values: dict[str, Any] = {
         "name": "chonk-merged",
         "checkpoints": ["/checkpoints/chonk"],
@@ -19,7 +19,7 @@ def _config(**changes: Any) -> CheckpointMergeConfig:
         "partition": "normal",
     }
     values.update(changes)
-    return CheckpointMergeConfig(**values)
+    return MegatronCheckpointMergeConfig(**values)
 
 
 class CheckpointMergeTest(unittest.TestCase):
@@ -28,11 +28,32 @@ class CheckpointMergeTest(unittest.TestCase):
 
         self.assertIn("#SBATCH --ntasks-per-node=3", script)
         self.assertIn("--ntasks=6", script)
-        self.assertIn("/workspace/Megatron-LM/tools/checkpoint/merge.py", script)
-        self.assertIn("--checkpoints \\\n  /checkpoints/chonk", script)
-        self.assertIn("--checkpoint-steps \\\n  1000 \\\n  2000", script)
-        self.assertIn("--backend \\\n  gloo", script)
+        self.assertIn('"${MEGATRON_PATH}/tools/checkpoint/merge.py"', script)
+        self.assertIn('PYTHONPATH="${MEGATRON_PATH}:${PYTHONPATH:-}"', script)
+        self.assertIn(
+            'numactl --cpunodebind="${SLURM_LOCALID}" --membind="${SLURM_LOCALID}"',
+            script,
+        )
+        self.assertIn('"--checkpoints" \\\n  "/checkpoints/chonk"', script)
+        self.assertIn('"--checkpoint-steps" \\\n  "1000" \\\n  "2000"', script)
+        self.assertIn('"--backend" \\\n  "gloo"', script)
         self.assertNotIn("#SBATCH --gpus-per-node", script)
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+    def test_renders_pinned_megatron_worktree(self) -> None:
+        script = render(_config(megatron_commit="abc123"))
+
+        self.assertIn('MEGATRON_REQUESTED_REF="abc123"', script)
+        self.assertIn("worktree add --detach", script)
+        self.assertIn("MEGATRON_TARGET_COMMIT", script)
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+    def test_renders_megatron_url_checkout(self) -> None:
+        script = render(_config(megatron_path="https://example.com/Megatron-LM.git"))
+
+        self.assertIn("Cloning Megatron-LM from https://example.com/Megatron-LM.git", script)
+        self.assertIn("git clone", script)
+        self.assertIn('MEGATRON_REQUESTED_REF="refs/remotes/origin/HEAD"', script)
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
 
     def test_renders_linear_decay_and_container_options(self) -> None:
@@ -46,11 +67,14 @@ class CheckpointMergeTest(unittest.TestCase):
             )
         )
 
-        self.assertIn("--merge-method \\\n  linear-decay", script)
-        self.assertIn("--target-end-multiplier \\\n  0.2", script)
+        self.assertIn('"--merge-method" \\\n  "linear-decay"', script)
+        self.assertIn('"--target-end-multiplier" \\\n  "0.2"', script)
         self.assertIn('--environment="apertus2-alps4-temp"', script)
         self.assertIn('--container-mounts="/checkpoints:/checkpoints"', script)
         self.assertIn("--network=disable_rdzv_get", script)
+        self.assertIn('MEGATRON_CONTAINER_PATH="/opt/megatron"', script)
+        self.assertIn('rm -rf "${MEGATRON_CONTAINER_PATH}"', script)
+        self.assertIn('export MEGATRON_PATH="${MEGATRON_CONTAINER_PATH}"', script)
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
 
     def test_submit_creates_log_directory(self) -> None:

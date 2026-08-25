@@ -1,5 +1,5 @@
 """Megatron checkpoint merge launcher."""
 
-from .checkpoint import CheckpointMergeConfig, render, submit
+from .checkpoint import MegatronCheckpointMergeConfig, render, submit
 
-__all__ = ["CheckpointMergeConfig", "render", "submit"]
+__all__ = ["MegatronCheckpointMergeConfig", "render", "submit"]

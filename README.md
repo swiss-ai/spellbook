@@ -224,7 +224,7 @@ Standalone operational launchers live under [`tools/`](tools/). They are separat
 
 ### Dynamic inference HTTP server
 
-[`tools/inference/megatron_server.py`](tools/inference/megatron_server.py) renders and submits Megatron's dynamic text-generation server as a multi-node Slurm job. It uses one Slurm task per GPU (no `torchrun`), installs Quart and Hypercorn once per node inside the containerized step, and enables dynamic batching and CUDA graphs. Checkpoint-specific configs belong in the experiment repository that owns the checkpoint.
+[`tools/inference/megatron_server.py`](tools/inference/megatron_server.py) is the Megatron backend for dynamic text generation. It uses one Slurm task per GPU (no `torchrun`), binds each task's CPU and memory to the matching NUMA node, installs Quart and Hypercorn once per node inside the containerized step, and enables dynamic batching and CUDA graphs. Like experiment launches, it accepts a local or Git-backed Megatron checkout, supports commit pinning, and replaces the Megatron copy inside the container.
 
 ```python
 from tools.inference.megatron_server import MegatronServerConfig, submit
@@ -234,7 +234,8 @@ submit(MegatronServerConfig(
     checkpoint="/path/to/checkpoints/my-model",
     ckpt_step=3000,
     tokenizer_model="/path/to/tokenizer",
-    megatron_path="/path/to/Megatron-LM",
+    megatron_path="/path/to/Megatron-LM",  # Or a Git URL.
+    megatron_commit="<commit-or-branch>",
     expert_parallel_size=8,
     nodes=2,
     gpus_per_node=4,
@@ -253,14 +254,14 @@ python -m tools.inference.client interactive
 
 See [`tools/inference/examples/megatron_server.py`](tools/inference/examples/megatron_server.py) for a complete placeholder configuration and [`tools/inference/README.md`](tools/inference/README.md) for container, tunnel, chat, and curl examples. The server has no built-in authentication.
 
-### Checkpoint merge
+### Megatron checkpoint merge
 
-[`tools/merge/checkpoint.py`](tools/merge/checkpoint.py) renders and submits the distributed `tools/checkpoint/merge.py` added to Megatron-LM-MoE in commit [`38f36a8`](https://github.com/andresnowak/Megatron-LM-MoE/commit/38f36a887d5be7ea3c4932d5a958ffc9b0dc87a8). It supports mean and linear-decay weight-space merges, one checkpoint root with multiple steps or multiple checkpoint paths, and configurable Slurm workers.
+[`tools/merge/checkpoint.py`](tools/merge/checkpoint.py) is the Megatron backend for the distributed `tools/checkpoint/merge.py` added to Megatron-LM-MoE in commit [`38f36a8`](https://github.com/andresnowak/Megatron-LM-MoE/commit/38f36a887d5be7ea3c4932d5a958ffc9b0dc87a8). It supports mean and linear-decay weight-space merges, one checkpoint root with multiple steps or multiple checkpoint paths, and NUMA-bound Slurm workers.
 
 ```python
-from tools.merge import CheckpointMergeConfig, submit
+from tools.merge import MegatronCheckpointMergeConfig, submit
 
-submit(CheckpointMergeConfig(
+submit(MegatronCheckpointMergeConfig(
     name="model-steps-1000-2000",
     checkpoints=["/path/to/checkpoints/model"],
     checkpoint_steps=[1000, 2000],

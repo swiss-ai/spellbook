@@ -3,25 +3,29 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import re
-import shlex
 import subprocess
 from pathlib import Path
+from urllib.parse import urlparse
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 _TEMPLATES_DIR = Path(__file__).parent
+_BACKEND_TEMPLATES_DIR = Path(__file__).parents[2] / "spellbook/backends/slurm_megatron"
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _JOB_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 @dataclasses.dataclass
-class CheckpointMergeConfig:
+class MegatronCheckpointMergeConfig:
     name: str
     checkpoints: list[str]
     output: str
     megatron_path: str
 
+    megatron_commit: str = ""
+    megatron_container_path: str = "/opt/megatron"
     checkpoint_steps: list[int] = dataclasses.field(default_factory=list)
     merge_method: str = "mean"
     original_schedule: str = "stable"
@@ -49,7 +53,14 @@ class CheckpointMergeConfig:
     env_vars: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
-def _validate(cfg: CheckpointMergeConfig) -> None:
+def _is_megatron_url(value: str) -> bool:
+    parsed = urlparse(value)
+    return (
+        parsed.scheme in {"git", "http", "https", "ssh"} and bool(parsed.netloc)
+    ) or (value.startswith("git@") and ":" in value)
+
+
+def _validate(cfg: MegatronCheckpointMergeConfig) -> None:
     if not _JOB_NAME.fullmatch(cfg.name):
         raise ValueError(
             "name may contain only letters, numbers, dots, underscores, and hyphens"
@@ -58,6 +69,16 @@ def _validate(cfg: CheckpointMergeConfig) -> None:
         raise ValueError("checkpoint merging requires at least two checkpoints")
     if not cfg.output or not cfg.megatron_path:
         raise ValueError("output and megatron_path must not be empty")
+    container_path = cfg.megatron_container_path.rstrip("/")
+    if (
+        not container_path.startswith("/")
+        or ".." in container_path.split("/")
+        or re.fullmatch(r"/[A-Za-z0-9_./-]+", container_path) is None
+        or len([part for part in container_path.split("/") if part]) < 2
+    ):
+        raise ValueError(
+            "megatron_container_path must be a shell-safe absolute path with at least two components"
+        )
     for field_name in ("nodes", "workers_per_node", "cpus_per_task"):
         if getattr(cfg, field_name) <= 0:
             raise ValueError(f"{field_name} must be greater than zero")
@@ -80,9 +101,8 @@ def _validate(cfg: CheckpointMergeConfig) -> None:
         raise ValueError(f"invalid environment variable names: {invalid_env_names}")
 
 
-def _merge_args(cfg: CheckpointMergeConfig) -> list[str]:
+def _merge_args(cfg: MegatronCheckpointMergeConfig) -> list[str]:
     args = [
-        str(Path(cfg.megatron_path).expanduser() / "tools/checkpoint/merge.py"),
         "--checkpoints",
         *cfg.checkpoints,
     ]
@@ -112,21 +132,42 @@ def _merge_args(cfg: CheckpointMergeConfig) -> list[str]:
     return args
 
 
-def render(cfg: CheckpointMergeConfig) -> str:
+def _shell_double_quote(value: str) -> str:
+    escaped = (
+        value.replace("\\", "\\\\")
+        .replace('"', '\\"')
+        .replace("$", "\\$")
+        .replace("`", "\\`")
+    )
+    return f'"{escaped}"'
+
+
+def render(cfg: MegatronCheckpointMergeConfig) -> str:
     """Render a distributed checkpoint merge job."""
     _validate(cfg)
     env = Environment(
-        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
+        loader=FileSystemLoader([str(_TEMPLATES_DIR), str(_BACKEND_TEMPLATES_DIR)]),
         undefined=StrictUndefined,
         keep_trailing_newline=True,
     )
     context = dataclasses.asdict(cfg)
+    megatron_url = cfg.megatron_path if _is_megatron_url(cfg.megatron_path) else ""
     context.update(
         {
             "log_dir": str(Path(cfg.log_dir).expanduser().resolve()),
             "total_workers": cfg.nodes * cfg.workers_per_node,
-            "megatron_path_shell": shlex.quote(str(Path(cfg.megatron_path).expanduser())),
-            "merge_args": [shlex.quote(arg) for arg in _merge_args(cfg)],
+            "megatron_path": (
+                "" if megatron_url else str(Path(cfg.megatron_path).expanduser())
+            ),
+            "megatron_url": megatron_url,
+            "megatron_cache_key": hashlib.sha256(
+                cfg.megatron_path.encode()
+            ).hexdigest()[:16],
+            "megatron_worktree_key": hashlib.sha256(
+                f"{cfg.megatron_path}\0{cfg.megatron_commit}".encode()
+            ).hexdigest()[:16],
+            "megatron_container_path": cfg.megatron_container_path.rstrip("/"),
+            "merge_args": [_shell_double_quote(arg) for arg in _merge_args(cfg)],
         }
     )
     return env.get_template("checkpoint.sh.j2").render(context)
@@ -139,7 +180,7 @@ def _sbatch(script: str) -> str:
     return result.stdout.strip().split()[-1]
 
 
-def submit(cfg: CheckpointMergeConfig) -> str:
+def submit(cfg: MegatronCheckpointMergeConfig) -> str:
     """Render and submit a checkpoint merge job."""
     Path(cfg.log_dir).expanduser().mkdir(parents=True, exist_ok=True)
     job_id = _sbatch(render(cfg))

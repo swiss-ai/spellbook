@@ -1,8 +1,8 @@
-# Inference
+# Megatron inference
 
 Slurm launcher for Megatron-LM's dynamic text-generation HTTP server. Model- and checkpoint-specific configs should live in the repository that owns those artifacts. The launcher is backend-specific while `tools.inference.client` targets the common HTTP API, leaving room for a future vLLM launcher without changing the interactive client.
 
-The launcher uses one Slurm task per GPU, not `torchrun`. Every task starts one Megatron process using `SLURM_PROCID`, `SLURM_LOCALID`, and `SLURM_NTASKS`. Quart and Hypercorn are installed once per node inside the containerized `srun` step before the server starts.
+The launcher uses one Slurm task per GPU, not `torchrun`. Every task starts one Megatron process using `SLURM_PROCID`, `SLURM_LOCALID`, and `SLURM_NTASKS`, with CPU and memory bound to the matching NUMA node. Quart and Hypercorn are installed once per node inside the containerized `srun` step before the server starts.
 
 A complete placeholder configuration is available at [`examples/megatron_server.py`](examples/megatron_server.py). Replace its paths and Slurm settings, then inspect or submit it with:
 
@@ -21,7 +21,8 @@ submit(MegatronServerConfig(
     checkpoint="/path/to/checkpoint/root",
     ckpt_step=3000,
     tokenizer_model="/path/to/tokenizer",
-    megatron_path="/path/to/Megatron-LM",
+    megatron_path="/path/to/Megatron-LM",  # Local checkout or Git URL.
+    megatron_commit="<commit-or-branch>",
     tensor_parallel_size=1,
     expert_parallel_size=8,
     nodes=2,
@@ -41,6 +42,8 @@ submit(MegatronServerConfig(
 ```
 
 Use `render(cfg)` to inspect the sbatch script without submitting it. `nodes * gpus_per_node` determines the total Slurm task/world count; configure tensor, pipeline, and expert parallelism so the model is actually sharded across that world. Keep `host=None` (the default) for multi-node jobs: Megatron then advertises each compute node's routable hostname while its rank-0 HTTP frontend still binds to all interfaces.
+
+`megatron_path` accepts a local checkout or Git URL, and `megatron_commit` pins a commit or branch. Like experiment launches, container jobs remove the existing Megatron copy before copying the selected checkout to `megatron_container_path` (default: `/opt/megatron`).
 
 `megatron_args` accepts new Megatron options without changes to Spellbook: keys use the same `snake_case` to `--kebab-case` conversion as experiment fields, `True` emits a bare flag, and `None`/`False` omit it.
 

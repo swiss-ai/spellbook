@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import dataclasses
+import hashlib
 import re
 import subprocess
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from spellbook.megatron.flags import to_args
 
 _TEMPLATES_DIR = Path(__file__).parent
+_BACKEND_TEMPLATES_DIR = Path(__file__).parents[2] / "spellbook/backends/slurm_megatron"
 _ENV_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _JOB_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
@@ -25,6 +28,8 @@ class MegatronServerConfig:
     ckpt_step: int
     tokenizer_model: str
     megatron_path: str
+    megatron_commit: str = ""
+    megatron_container_path: str = "/opt/megatron"
     megatron_args: dict[str, Any] = dataclasses.field(default_factory=dict)
 
     # Parallelism and inference engine.
@@ -65,6 +70,13 @@ class MegatronServerConfig:
     env_vars: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
+def _is_megatron_url(value: str) -> bool:
+    parsed = urlparse(value)
+    return (
+        parsed.scheme in {"git", "http", "https", "ssh"} and bool(parsed.netloc)
+    ) or (value.startswith("git@") and ":" in value)
+
+
 def _validate(cfg: MegatronServerConfig) -> None:
     if not _JOB_NAME.fullmatch(cfg.name):
         raise ValueError(
@@ -93,6 +105,16 @@ def _validate(cfg: MegatronServerConfig) -> None:
         raise ValueError("tokenizer_model must not be empty")
     if not cfg.megatron_path:
         raise ValueError("megatron_path must not be empty")
+    container_path = cfg.megatron_container_path.rstrip("/")
+    if (
+        not container_path.startswith("/")
+        or ".." in container_path.split("/")
+        or re.fullmatch(r"/[A-Za-z0-9_./-]+", container_path) is None
+        or len([part for part in container_path.split("/") if part]) < 2
+    ):
+        raise ValueError(
+            "megatron_container_path must be a shell-safe absolute path with at least two components"
+        )
     model_parallel_size = (
         cfg.tensor_parallel_size
         * cfg.pipeline_parallel_size
@@ -190,18 +212,27 @@ def render(cfg: MegatronServerConfig) -> str:
     """Render a one-Slurm-task-per-GPU server job."""
     _validate(cfg)
     env = Environment(
-        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
+        loader=FileSystemLoader([str(_TEMPLATES_DIR), str(_BACKEND_TEMPLATES_DIR)]),
         undefined=StrictUndefined,
         keep_trailing_newline=True,
     )
     context = dataclasses.asdict(cfg)
+    megatron_url = cfg.megatron_path if _is_megatron_url(cfg.megatron_path) else ""
     context.update(
         {
             "log_dir": str(Path(cfg.log_dir).expanduser().resolve()),
             "total_tasks": cfg.nodes * cfg.gpus_per_node,
-            "megatron_path_shell": _shell_double_quote(
-                str(Path(cfg.megatron_path).expanduser())
+            "megatron_path": (
+                "" if megatron_url else str(Path(cfg.megatron_path).expanduser())
             ),
+            "megatron_url": megatron_url,
+            "megatron_cache_key": hashlib.sha256(
+                cfg.megatron_path.encode()
+            ).hexdigest()[:16],
+            "megatron_worktree_key": hashlib.sha256(
+                f"{cfg.megatron_path}\0{cfg.megatron_commit}".encode()
+            ).hexdigest()[:16],
+            "megatron_container_path": cfg.megatron_container_path.rstrip("/"),
             "server_args": [_shell_double_quote(arg) for arg in _server_args(cfg)],
         }
     )

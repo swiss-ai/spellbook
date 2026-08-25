@@ -20,6 +20,7 @@ config = MegatronServerConfig(
     ckpt_step=3000,
     tokenizer_model="/path/to/tokenizer",
     megatron_path=os.environ.get("MEGATRON_PATH", "/path/to/Megatron-LM"),
+    megatron_commit=os.environ.get("MEGATRON_COMMIT", ""),
     # One process per GPU: 2 nodes * 4 GPUs = WORLD_SIZE 8.
     nodes=2,
     gpus_per_node=4,

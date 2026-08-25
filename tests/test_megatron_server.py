@@ -34,6 +34,24 @@ class DynamicServerTest(unittest.TestCase):
         self.assertIn('export LOCAL_RANK="${SLURM_LOCALID}"', script)
         self.assertNotIn("torchrun", script)
         self.assertIn("tools/run_dynamic_text_generation_server.py", script)
+        self.assertIn(
+            'numactl --cpunodebind="${SLURM_LOCALID}" --membind="${SLURM_LOCALID}"',
+            script,
+        )
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+    def test_renders_pinned_megatron_worktree(self) -> None:
+        script = render(_config(megatron_commit="abc123"))
+
+        self.assertIn('MEGATRON_REQUESTED_REF="abc123"', script)
+        self.assertIn("worktree add --detach", script)
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+    def test_renders_megatron_url_checkout(self) -> None:
+        script = render(_config(megatron_path="https://example.com/Megatron-LM.git"))
+
+        self.assertIn("Cloning Megatron-LM from https://example.com/Megatron-LM.git", script)
+        self.assertIn('MEGATRON_REQUESTED_REF="refs/remotes/origin/HEAD"', script)
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
 
     def test_renders_dynamic_batching_graphs_and_model_args(self) -> None:
@@ -88,6 +106,9 @@ class DynamicServerTest(unittest.TestCase):
         self.assertIn("--network=disable_rdzv_get", script)
         self.assertIn("python -m pip install quart hypercorn", script)
         self.assertIn('if [[ "${SLURM_LOCALID}" == "0" ]]', script)
+        self.assertIn('MEGATRON_CONTAINER_PATH="/opt/megatron"', script)
+        self.assertIn('rm -rf "${MEGATRON_CONTAINER_PATH}"', script)
+        self.assertIn('export MEGATRON_PATH="${MEGATRON_CONTAINER_PATH}"', script)
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
 
     def test_submit_creates_log_directory(self) -> None:
