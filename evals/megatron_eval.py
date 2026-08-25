@@ -199,6 +199,23 @@ def _is_megatron_url(value: str) -> bool:
     ) or (value.startswith("git@") and ":" in value)
 
 
+def _checkpoint_load_path(cfg: MegatronEvalConfig, reporting_step: int) -> Path:
+    """Resolve the checkpoint directory Megatron will actually load."""
+    model_root = Path(cfg.checkpoint_dir) / cfg.model_name
+    load_step = cfg.model_args_extra.get("ckpt_step", reporting_step)
+    if load_step:
+        return model_root / f"iter_{int(load_step):07d}"
+
+    tracker = model_root / "latest_checkpointed_iteration.txt"
+    if tracker.is_file():
+        tracked = tracker.read_text().strip()
+        if tracked == "release":
+            return model_root / "release"
+        return model_root / f"iter_{int(tracked):07d}"
+
+    return model_root / f"iter_{reporting_step:07d}"
+
+
 def _render_checkpoints(
     cfg: MegatronEvalConfig,
     checkpoints: tuple[tuple[int, int | None], ...],
@@ -306,9 +323,7 @@ def _render_checkpoints(
                     "ckpt_step": ckpt_step,
                     "output_path": str(run_output_path),
                     "checkpoint_path": str(
-                        Path(cfg.checkpoint_dir)
-                        / cfg.model_name
-                        / f"iter_{ckpt_step:07d}"
+                        _checkpoint_load_path(cfg, ckpt_step)
                     ),
                     "env_vars": run.env_vars if run is not None else {},
                     "lm_eval_args_lines": lm_eval_flags.to_shell_lines(

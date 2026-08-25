@@ -256,6 +256,38 @@ class MegatronPathTest(unittest.TestCase):
         self.assertIn('WANDB_ARGS[1]="${WANDB_ARGS[1]},total_flops=${TOTAL_FLOPS}"', script)
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
 
+    def test_zero_load_step_resolves_metadata_from_checkpoint_tracker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_root = Path(tmpdir) / "model"
+            model_root.mkdir()
+            (model_root / "latest_checkpointed_iteration.txt").write_text("release")
+            cfg = _config("/path/to/Megatron-LM")
+            cfg.checkpoint_dir = tmpdir
+            cfg.model_args_extra = {"ckpt_step": 0, "use_dist_ckpt": True}
+            cfg.wandb_project = "evals"
+
+            script = _render(cfg, 57210, False)
+
+        self.assertIn(f"{model_root}/release/common.pt", script)
+        self.assertIn("step=57210", script)
+        self.assertIn("ckpt_step=0", script)
+
+    def test_zero_load_step_resolves_numeric_checkpoint_tracker(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_root = Path(tmpdir) / "model"
+            model_root.mkdir()
+            (model_root / "latest_checkpointed_iteration.txt").write_text("42")
+            cfg = _config("/path/to/Megatron-LM")
+            cfg.checkpoint_dir = tmpdir
+            cfg.model_args_extra = {"ckpt_step": 0, "use_dist_ckpt": True}
+            cfg.wandb_project = "evals"
+
+            script = _render(cfg, 57210, False)
+
+        self.assertIn(f"{model_root}/iter_0000042/common.pt", script)
+        self.assertIn("step=57210", script)
+        self.assertIn("ckpt_step=0", script)
+
     def test_eval_run_names_are_unique_and_renderer_arguments_win(self) -> None:
         cfg = _config("/path/to/Megatron-LM")
         cfg.eval_runs = [
