@@ -6,16 +6,15 @@ Notable changes to Spellbook are documented here.
 
 ### Added
 
-- A multi-node, one-Slurm-task-per-GPU Megatron dynamic-inference HTTP server
-  launcher with dictionary-based Megatron arguments, per-node Quart/Hypercorn
-  installation, dynamic batching, CUDA graphs, and a dependency-free persistent
-  Python client.
+- A `tools` package for standalone operational launchers, containing the
+  multi-node Megatron dynamic-inference HTTP server and a distributed Slurm
+  launcher for Megatron checkpoint merging (e.g. checkpoint averaging)
 - Configurable checkpoint/evaluation grouping for Megatron jobs, allowing each
   axis to use shared or separate allocations while retaining per-run outputs,
   environments, and WandB names and IDs.
-- A configurable multi-node vLLM evaluation launcher for prebuilt runtimes and
-  Hugging Face checkpoints, supporting both one-task-per-node torchrun and
-  one-task-per-GPU Slurm launches.
+- A single-node Slurm launcher for lm-evaluation-harness's standard vLLM
+  backend, with tensor and data parallel options, common lm-eval settings,
+  install hooks, caching, and WandB integration.
 - A fixed-interface hfconverter Stage-2 submission helper with local or Git URL
   sources, locked refreshed checkout caches, optional commit pinning,
   completed-output reuse, explicit recreation, and vLLM job dependencies.

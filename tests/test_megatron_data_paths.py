@@ -121,6 +121,51 @@ class DataPathTest(unittest.TestCase):
         self.assertIn('if [[ "${SLURM_LOCALID:-0}" == "0" ]]', script)
         self.assertIn("Package installation failed", script)
 
+    def test_task_mode_can_profile_selected_launcher_ranks_with_custom_nsys_args(self) -> None:
+        experiment = _experiment(
+            megatron_path="/source/Megatron-LM",
+            data_path="/data/prefix",
+            profile=True,
+            profile_ranks=[64],
+            nsys_launcher_ranks=[64],
+            nsys_profile_args=[
+                "-s none",
+                "--trace=nvtx,cudnn,cublas,cuda",
+                "--capture-range=cudaProfilerApi",
+                "--capture-range-end=stop",
+                "--force-overwrite=true",
+            ],
+            nsys_tmpdir="${SLURM_TMPDIR:-/tmp}",
+            nsys_output="/reports/${SLURM_JOB_ID}",
+        )
+
+        script = _container_backend(launch_mode="tasks").render(experiment)
+
+        self.assertIn('NSYS_LAUNCHER_RANKS=" 64 "', script)
+        self.assertIn(
+            'if [[ "${NSYS_LAUNCHER_RANKS}" == *" ${SLURM_PROCID} "* ]]',
+            script,
+        )
+        self.assertIn('export NSYS_TMPDIR="${SLURM_TMPDIR:-/tmp}"', script)
+        self.assertIn("--trace=nvtx,cudnn,cublas,cuda", script)
+        self.assertNotIn("--cuda-graph-trace=node", script)
+        self.assertIn("--profile-ranks 64", script)
+        self.assertIn("/reports/${SLURM_JOB_ID}/data-test-${SLURM_PROCID}", script)
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+    def test_task_mode_profiles_every_launcher_rank_by_default(self) -> None:
+        experiment = _experiment(
+            megatron_path="/source/Megatron-LM",
+            data_path="/data/prefix",
+            profile=True,
+        )
+
+        script = _container_backend(launch_mode="tasks").render(experiment)
+
+        self.assertNotIn("NSYS_LAUNCHER_RANKS", script)
+        self.assertIn("--cuda-graph-trace=node", script)
+        self.assertIn('PROFILE_CMD="nsys profile', script)
+
     def test_auto_requeue_can_cancel_successor_on_completion_regex(self) -> None:
         experiment = _experiment(
             megatron_path="/source/Megatron-LM", data_path="/data/prefix"

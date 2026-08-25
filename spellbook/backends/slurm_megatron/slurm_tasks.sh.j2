@@ -160,19 +160,39 @@ DATA_PATH=""
 {% endif %}
 {% if profile %}
 export NVTE_NVTX_ENABLED=1
-mkdir -p {{ nsys_output }}
-PROFILE_CMD="nsys profile \
-  --sample=none --cpuctxsw=none \
-  -t {{ profile_types }} \
-  --capture-range=cudaProfilerApi \
-  --capture-range-end=stop \
-  --cuda-graph-trace=node \
-  --pytorch={{ pytorch_nsys_profile }} \
-  --python-sampling={{ "true" if python_sampling else "false" }} \
-  --nic-metrics={{ nic_metrics }} \
-  --stats=false \
-  -f true -x true \
-  -o {{ nsys_output }}/{{ job_name }}-${SLURM_PROCID}"
+PROFILE_CMD=""
+{% if nsys_launcher_ranks is not none %}
+NSYS_LAUNCHER_RANKS=" {{ nsys_launcher_ranks | join(" ") }} "
+if [[ "${NSYS_LAUNCHER_RANKS}" == *" ${SLURM_PROCID} "* ]]; then
+{% endif %}
+{% if nsys_tmpdir %}
+  export NSYS_TMPDIR="{{ nsys_tmpdir }}"
+  mkdir -p "${NSYS_TMPDIR}"
+{% endif %}
+  mkdir -p {{ nsys_output }}
+{% if nsys_profile_args %}
+  PROFILE_CMD="nsys profile \
+{% for arg in nsys_profile_args %}
+    {{ arg }} \
+{% endfor %}
+    -o {{ nsys_output }}/{{ job_name }}-${SLURM_PROCID}"
+{% else %}
+  PROFILE_CMD="nsys profile \
+    --sample=none --cpuctxsw=none \
+    -t {{ profile_types }} \
+    --capture-range=cudaProfilerApi \
+    --capture-range-end=stop \
+    --cuda-graph-trace=node \
+    --pytorch={{ pytorch_nsys_profile }} \
+    --python-sampling={{ "true" if python_sampling else "false" }} \
+    --nic-metrics={{ nic_metrics }} \
+    --stats=false \
+    -f true -x true \
+    -o {{ nsys_output }}/{{ job_name }}-${SLURM_PROCID}"
+{% endif %}
+{% if nsys_launcher_ranks is not none %}
+fi
+{% endif %}
 {% else %}
 PROFILE_CMD=""
 {% endif %}

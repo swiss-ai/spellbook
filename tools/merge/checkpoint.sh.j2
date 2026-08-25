@@ -1,0 +1,51 @@
+#!/bin/bash
+#SBATCH --nodes={{ nodes }}
+#SBATCH --account={{ account }}
+#SBATCH --partition={{ partition }}
+#SBATCH --ntasks-per-node={{ workers_per_node }}
+#SBATCH --cpus-per-task={{ cpus_per_task }}
+#SBATCH --time={{ run_time }}
+#SBATCH --job-name=merge_{{ name }}
+#SBATCH --output={{ log_dir }}/{{ name }}-%j.log
+#SBATCH --error={{ log_dir }}/{{ name }}-%j.log
+#SBATCH --exclusive
+{%- if gpus_per_node %}
+#SBATCH --gpus-per-node={{ gpus_per_node }}
+{%- endif %}
+{%- if memory %}
+#SBATCH --mem={{ memory }}
+{%- endif %}
+{%- if reservation %}
+#SBATCH --reservation={{ reservation }}
+{%- endif %}
+{%- if exclude %}
+#SBATCH --exclude={{ exclude }}
+{%- endif %}
+
+set -e
+ulimit -c 0
+
+export PYTHONPATH={{ megatron_path_shell }}:"${PYTHONPATH:-}"
+{% for key, value in env_vars.items() %}
+export {{ key }}={{ value | tojson }}
+{%- endfor %}
+
+srun \
+  --nodes={{ nodes }} \
+  --ntasks={{ total_workers }} \
+  --ntasks-per-node={{ workers_per_node }} \
+  --cpus-per-task={{ cpus_per_task }} \
+  --mpi=pmix \
+  --kill-on-bad-exit=1 \
+  -l \
+{%- if container_edf %}
+  --environment="{{ container_edf }}" \
+{%- endif %}
+{%- if container_mounts %}
+  --container-mounts="{{ container_mounts }}" \
+{%- endif %}
+{%- if srun_extra_args %}
+  {{ srun_extra_args }} \
+{%- endif %}
+  -u python \
+  {{ merge_args | join(" \\\n  ") }}

@@ -1,20 +1,20 @@
 # Inference
 
-Slurm launcher for Megatron-LM's dynamic text-generation HTTP server. Model- and checkpoint-specific configs should live in the repository that owns those artifacts. The launcher is backend-specific while `inference.client` targets the common HTTP API, leaving room for a future vLLM launcher without changing the interactive client.
+Slurm launcher for Megatron-LM's dynamic text-generation HTTP server. Model- and checkpoint-specific configs should live in the repository that owns those artifacts. The launcher is backend-specific while `tools.inference.client` targets the common HTTP API, leaving room for a future vLLM launcher without changing the interactive client.
 
 The launcher uses one Slurm task per GPU, not `torchrun`. Every task starts one Megatron process using `SLURM_PROCID`, `SLURM_LOCALID`, and `SLURM_NTASKS`. Quart and Hypercorn are installed once per node inside the containerized `srun` step before the server starts.
 
 A complete placeholder configuration is available at [`examples/megatron_server.py`](examples/megatron_server.py). Replace its paths and Slurm settings, then inspect or submit it with:
 
 ```bash
-python -m inference.examples.megatron_server render
-python -m inference.examples.megatron_server submit
+python -m tools.inference.examples.megatron_server render
+python -m tools.inference.examples.megatron_server submit
 ```
 
 Minimal configuration shape:
 
 ```python
-from inference.megatron_server import MegatronServerConfig, submit
+from tools.inference.megatron_server import MegatronServerConfig, submit
 
 submit(MegatronServerConfig(
     name="my-model-step-3000",
@@ -48,15 +48,15 @@ The job log prints its compute hostname. A small standard-library client is incl
 
 ```bash
 export INFERENCE_SERVER_URL="http://${COMPUTE_HOST}:5000"
-python -m inference.client health
-python -m inference.client interactive --max-tokens 128
+python -m tools.inference.client health
+python -m tools.inference.client interactive --max-tokens 128
 
 # Or preserve message history when the tokenizer has a chat template:
-python -m inference.client interactive --chat --system "You are a helpful assistant."
+python -m tools.inference.client interactive --chat --system "You are a helpful assistant."
 
 # One-shot requests remain available:
-python -m inference.client completion "The capital of Switzerland is" --max-tokens 32
-python -m inference.client chat "What is the capital of Switzerland?" --max-tokens 32
+python -m tools.inference.client completion "The capital of Switzerland is" --max-tokens 32
+python -m tools.inference.client chat "What is the capital of Switzerland?" --max-tokens 32
 ```
 
 The same requests can be sent with curl from a cluster login node:

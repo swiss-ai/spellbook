@@ -1,8 +1,8 @@
 """Example multi-node Megatron dynamic-inference server configuration.
 
 Usage:
-    python -m inference.examples.megatron_server render
-    python -m inference.examples.megatron_server submit
+    python -m tools.inference.examples.megatron_server render
+    python -m tools.inference.examples.megatron_server submit
 
 Replace the placeholder model, tokenizer, Megatron, and Slurm values first.
 """
@@ -12,7 +12,7 @@ from __future__ import annotations
 import argparse
 import os
 
-from inference.megatron_server import MegatronServerConfig, render, submit
+from tools.inference.megatron_server import MegatronServerConfig, render, submit
 
 config = MegatronServerConfig(
     name="example-model-step-3000",

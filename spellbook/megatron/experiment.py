@@ -236,14 +236,19 @@ class MegatronExperiment(Experiment):
     torchrun_standalone: bool = False  # passes --standalone to torchrun; useful for single-node runs
 
     # --- nsys profiling ---
-    # When profile=True the template wraps the python launch with:
-    #   nsys profile ... -o <nsys_output>/<name>-$SLURM_PROCID
+    # When profile=True the template wraps the Python launch with nsys. In task
+    # launch mode, nsys_launcher_ranks can restrict the external profiler to a
+    # subset of global Slurm ranks; profile_ranks independently controls which
+    # Megatron ranks call cudaProfilerStart/Stop.
     profile: bool = False
     nsys_output: str = "nsys"              # directory for .nsys-rep files
-    profile_types: str = "cuda,nvtx"       # -t argument
+    profile_types: str = "cuda,nvtx"       # -t argument for the default command
     profile_step_start: int = 5
     profile_step_end: int = 7
     profile_ranks: list[int] = dataclasses.field(default_factory=lambda: [0])
+    nsys_launcher_ranks: list[int] | None = None  # None profiles every Slurm task
+    nsys_profile_args: list[str] | None = None
+    nsys_tmpdir: str | None = None            # e.g. ${SLURM_TMPDIR:-/tmp}
     pytorch_nsys_profile: str = "none"
     python_sampling: bool = False
     nic_metrics: str = "none"

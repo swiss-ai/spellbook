@@ -1,127 +1,93 @@
 #!/bin/bash
-#SBATCH --job-name={{ job_name }}
+#SBATCH --nodes=1
 #SBATCH --account={{ account }}
 #SBATCH --partition={{ partition }}
-#SBATCH --nodes={{ nodes }}
-#SBATCH --ntasks-per-node={{ ntasks_per_node }}
-#SBATCH --gpus-per-node={{ gpus_per_node }}
+#SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task={{ cpus_per_task }}
 #SBATCH --time={{ run_time }}
-#SBATCH --output={{ log_dir }}/{{ job_name }}-%j.out
-#SBATCH --error={{ log_dir }}/{{ job_name }}-%j.err
+#SBATCH --job-name=eval_{{ model_name }}
+#SBATCH --output={{ log_dir }}/{{ model_name }}/{{ model_name }}-%j.out
+#SBATCH --error={{ log_dir }}/{{ model_name }}/{{ model_name }}-%j.err
 #SBATCH --exclusive
-#SBATCH --no-requeue
-{% if memory %}
+#SBATCH --gres=gpu:{{ gpus_per_node }}
+{%- if memory %}
 #SBATCH --mem={{ memory }}
-{% endif %}
-{% if conversion_job_id %}
+{%- endif %}
+{%- if conversion_job_id %}
 #SBATCH --dependency=afterok:{{ conversion_job_id }}
-{% endif %}
-{% if reservation %}
+{%- endif %}
+{%- if reservation %}
 #SBATCH --reservation={{ reservation }}
-{% endif %}
-{% if exclude %}
+{%- endif %}
+{%- if exclude %}
 #SBATCH --exclude={{ exclude }}
-{% endif %}
+{%- endif %}
 
-set -euo pipefail
+set -e
 
-if [[ -f .env ]]; then
-  source .env
+if [[ -f ".env" ]]; then
+  source ".env"
 fi
-
-mkdir -p "{{ output_dir }}"
-
-mapfile -t ALLOCATED_HOSTS < <(scontrol show hostnames "${SLURM_JOB_NODELIST}")
-MASTER_ADDR="${ALLOCATED_HOSTS[0]:?Slurm allocation has no hosts}"
-MASTER_PORT="{{ master_port }}"
-RDZV_ENDPOINT="${MASTER_ADDR}:${MASTER_PORT}"
-
-export MASTER_ADDR MASTER_PORT RDZV_ENDPOINT
 export HF_TOKEN="${HF_TOKEN:-}"
 export WANDB_API_KEY="${WANDB_API_KEY:-}"
+export OUTPUT_DIR="{{ output_dir }}"
 
-{% for key, val in env_vars.items() %}
-export {{ key }}="{{ val }}"
-{% endfor %}
+mkdir -p "${OUTPUT_DIR}" "{{ log_dir }}/{{ model_name }}"
 
-echo "START TIME : $(date --iso-8601=seconds)"
-echo "model      : {{ model }}"
-echo "output     : {{ output_dir }}"
-echo "nodes      : {{ nodes }}"
-
-srun -ul \
-  --nodes={{ nodes }} \
-  --ntasks={{ total_tasks }} \
-  --ntasks-per-node={{ ntasks_per_node }} \
-  --gpus-per-node={{ gpus_per_node }} \
+srun \
+  --ntasks=1 \
   --cpus-per-task={{ cpus_per_task }} \
-  --exclusive \
-  --mpi=pmix \
-{% if container_edf %}  --environment="{{ container_edf }}" \
-{% endif %}{% if container_mounts %}  --container-mounts="{{ container_mounts }}" \
-{% endif %}{% if srun_extra_args %}  {{ srun_extra_args }} \
-{% endif %}  -u bash -lc '
-set -euo pipefail
+  --export=ALL,OUTPUT_DIR,HF_TOKEN,WANDB_API_KEY \
+{%- if container_edf %}
+  --environment="{{ container_edf }}" \
+{%- endif %}
+{%- if container_mounts %}
+  --container-mounts="{{ container_mounts }}" \
+{%- endif %}
+{%- if srun_extra_args %}
+  {{ srun_extra_args }} \
+{%- endif %}
+  -u bash -lc '
+set -e
+set -x
+ulimit -c 0
 
-NODE_RANK="${SLURM_NODEID:-0}"
-JOB_ID="${SLURM_JOB_ID:-local}"
-{% if launch_mode == "tasks" %}
-export LOCAL_RANK="${SLURM_LOCALID}"
-export RANK="${SLURM_PROCID}"
-export WORLD_SIZE="${SLURM_NTASKS:-{{ total_tasks }}}"
-{% endif %}
-
-export TOKENIZERS_PARALLELISM="false"
+export TOKENIZERS_PARALLELISM="False"
 export NCCL_DEBUG="${NCCL_DEBUG:-WARN}"
 export NCCL_NVLS_ENABLE="${NCCL_NVLS_ENABLE:-0}"
 export CUDA_DEVICE_MAX_CONNECTIONS="${CUDA_DEVICE_MAX_CONNECTIONS:-1}"
 
-{% if launch_mode == "tasks" %}
-JOB_TMP_ROOT="${TMPDIR:-/tmp}/spellbook-vllm-${JOB_ID}/rank-${SLURM_PROCID}"
-{% else %}
-JOB_TMP_ROOT="${TMPDIR:-/tmp}/spellbook-vllm-${JOB_ID}/node-${NODE_RANK}"
-{% endif %}
-export TMPDIR="${JOB_TMP_ROOT}"
-export XDG_CACHE_HOME="${XDG_CACHE_HOME:-${JOB_TMP_ROOT}/xdg}"
-mkdir -p "${TMPDIR}" "${XDG_CACHE_HOME}" "{{ output_dir }}"
-trap '\''rm -rf -- "${JOB_TMP_ROOT}"'\'' EXIT
+JOB_CACHE_KEY="${SLURM_JOB_ID:-local}-${SLURM_STEP_ID:-0}"
+export TRITON_HOME="/tmp/.triton/${JOB_CACHE_KEY}"
+export TRITON_CACHE_DIR="${TRITON_HOME}/cache"
+export TORCHINDUCTOR_CACHE_DIR="/tmp/.torchinductor/${JOB_CACHE_KEY}"
+mkdir -p "${TRITON_CACHE_DIR}" "${TORCHINDUCTOR_CACHE_DIR}" "${OUTPUT_DIR}"
 
-command=("{{ python_executable }}")
-{% if launch_mode == "torchrun" %}
-command+=(-m torch.distributed.run)
-{% if nodes == 1 %}
-command+=(
-  --standalone
-  --nproc-per-node={{ gpus_per_node }}
-)
-{% else %}
-command+=(
-  --nnodes={{ nodes }}
-  --node-rank="${NODE_RANK}"
-  --nproc-per-node={{ gpus_per_node }}
-  --rdzv-backend=c10d
-  --rdzv-endpoint="${RDZV_ENDPOINT}"
-  --rdzv-id="${JOB_ID}"
-)
-{% endif %}
-{% endif %}
-command+=(
-  "{{ runner }}"
-{% for arg in runner_args_lines %}
-  {{ arg }}
+{% if env_vars %}
+{% for key, val in env_vars.items() %}
+export {{ key }}="{{ val }}"
 {% endfor %}
-)
-
-printf "RUN:"
-printf " %q" "${command[@]}"
-printf "\\n"
-{% if launch_mode == "tasks" %}
-numactl --cpunodebind="${SLURM_LOCALID}" --membind="${SLURM_LOCALID}" \
-  "${command[@]}"
-{% else %}
-"${command[@]}"
 {% endif %}
-'
 
-echo "END TIME   : $(date --iso-8601=seconds)"
+{% if hf_home %}
+export HF_HOME="{{ hf_home }}"
+export HF_DATASETS_CACHE="{{ hf_home }}"
+{% endif %}
+
+{% if lm_eval_install %}
+{% if lm_eval_install_with_python %}python -m {% endif %}pip install {{ lm_eval_install }} --no-build-isolation
+{% endif %}
+{% if install_commands %}
+# --- Install packages ---
+{{ install_commands }}
+{% endif %}
+
+WANDB_ARGS=()
+{% if wandb_project %}
+WANDB_ARGS=({{ wandb_args_line }})
+{% endif %}
+
+python -m lm_eval run \
+  {{ lm_eval_args_lines | join(" \\\n  ") }} \
+  "${WANDB_ARGS[@]}"
+'

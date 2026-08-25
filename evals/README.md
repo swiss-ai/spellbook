@@ -10,7 +10,7 @@ Slurm evaluation runners for Megatron-LM and vLLM.
 | `megatron_eval.py` | Megatron dataclass and submission functions |
 | `megatron_eval.sh.j2` | Jinja2 template for the Megatron eval sbatch script |
 | `vllm_eval.py` | vLLM dataclass, renderer, and submission function |
-| `vllm_eval.sh.j2` | Jinja2 template for multi-node vLLM eval launches |
+| `vllm_eval.sh.j2` | Jinja2 template for lm-eval vLLM launches |
 | `watcher.py` | One-shot checkpoint checker + `start` command for the self-scheduling watcher |
 | `watcher.sh.j2` | Jinja2 template for the self-scheduling watcher sbatch script |
 
@@ -38,12 +38,14 @@ submit_eval(VLLMEvalConfig(
     model_name="apertus-8b-step-3000",
     model=hf_model,
     tokenizer="/path/to/tokenizer",
-    runner="/path/to/run_vllm_eval.py",
     tasks=["hellaswag", "arc_easy"],
+    batch_size="auto",
+    max_model_len=8192,
+    tensor_parallel_size=1,
+    data_parallel_size=4,
     output_dir="/path/to/results",
     account="infra01",
     partition="normal",
-    nodes=1,
     gpus_per_node=4,
     container_edf="apertus2-vllm",
     container_mounts="${SCRATCH}:${SCRATCH},${HOME}:${HOME}",
@@ -53,8 +55,23 @@ submit_eval(VLLMEvalConfig(
 ```
 
 Git hfconverter sources use locked caches below `${SCRATCH}/tmp` (or `~/.cache/spellbook/tmp`), completed conversions are reused, and `recreate=True` explicitly replaces partial or completed outputs.
-`launch_mode="torchrun"` starts one Slurm task per node while `launch_mode="tasks"` starts one NUMA-bound task per GPU; the runner receives the common model, tokenizer, task, batch, length, and output arguments.
-The user supplies prebuilt converter and vLLM images; Spellbook only submits conversion and evaluation jobs, writing results below `<output_dir>/<model_name>`.
+
+The vLLM job starts one `lm_eval` process with `python -m lm_eval run --model
+vllm`; lm-eval and vLLM create their own local workers. The adapter's documented
+`tensor_parallel_size` and `data_parallel_size` model arguments are supported.
+Their product may not exceed `gpus_per_node`. Pipeline and expert parallelism
+are not exposed because the lm-eval adapter does not officially support them.
+
+This launcher intentionally supports one Slurm node. It does not wrap lm-eval
+in torchrun or start one independent evaluator per GPU. Use `model_args_extra`
+for additional vLLM engine arguments and `lm_eval_args_extra` for additional
+lm-eval options. Common Megatron-evaluator features are also available:
+`cache_requests`, `metadata`, `log_samples`, `write_out`, `wandb_project`,
+`hf_home`, `lm_eval_install`, `install_commands`, and `env_vars`.
+
+The user supplies prebuilt converter and vLLM images; Spellbook only submits
+conversion and evaluation jobs, writing results below
+`<output_dir>/<model_name>`.
 
 ### Verified environment
 

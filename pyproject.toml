@@ -13,11 +13,13 @@ dependencies = [
 ]
 
 [tool.setuptools.packages.find]
-include = ["spellbook*", "evals*", "inference*"]
+include = ["spellbook*", "evals*", "tools*"]
 
 [tool.setuptools.package-data]
 evals = ["*.j2", "README.md"]
-inference = ["*.j2", "README.md"]
+tools = ["README.md"]
+"tools.inference" = ["*.j2", "README.md"]
+"tools.merge" = ["*.j2", "README.md"]
 "spellbook.backends.slurm_megatron" = ["*.j2"]
 
 [tool.ruff]

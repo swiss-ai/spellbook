@@ -117,11 +117,11 @@ def _consumed_tokens(step: int, tokens_per_step: int | None) -> int | None:
 
 
 def cmd_check(args: argparse.Namespace) -> None:
-    group_name = getattr(args, "group", None)
+    group_name = args.group
     cfg, watch_dir_override, state_dir = _load_config(
         args.config, args.model, group_name
     )
-    eval_job_name = getattr(args, "eval_job_name", None)
+    eval_job_name = args.eval_job_name
     if eval_job_name is not None:
         os.environ["SBATCH_JOB_NAME"] = eval_job_name
     elif group_name is not None:
@@ -132,7 +132,7 @@ def cmd_check(args: argparse.Namespace) -> None:
         submit(
             cfg,
             args.step,
-            dependency_singleton=getattr(args, "dependency_singleton", False),
+            dependency_singleton=args.dependency_singleton,
             consumed_tokens=_consumed_tokens(
                 args.step, args.consumed_tokens_per_step
             ),
@@ -156,7 +156,7 @@ def cmd_check(args: argparse.Namespace) -> None:
     submit(
         cfg,
         latest,
-        dependency_singleton=getattr(args, "dependency_singleton", False),
+        dependency_singleton=args.dependency_singleton,
         consumed_tokens=_consumed_tokens(latest, args.consumed_tokens_per_step),
     )
     _record_step(state, latest)
@@ -173,7 +173,7 @@ def _watcher_stop_file(
 
 
 def cmd_start(args: argparse.Namespace) -> None:
-    group_name = getattr(args, "group", None)
+    group_name = args.group
     cfg, watch_dir_override, state_dir = _load_config(
         args.config, args.model, group_name
     )
@@ -188,9 +188,9 @@ def cmd_start(args: argparse.Namespace) -> None:
         watch_checkpoint_dir=watch_dir_override,
         config_model=args.model,
         config_group=group_name,
-        eval_job_name=getattr(args, "eval_job_name", None),
+        eval_job_name=args.eval_job_name,
         consumed_tokens_per_step=args.consumed_tokens_per_step,
-        dependency_singleton=getattr(args, "dependency_singleton", False),
+        dependency_singleton=args.dependency_singleton,
         watch_state_dir=state_dir,
     )
     result = subprocess.run(
@@ -212,7 +212,7 @@ def cmd_start(args: argparse.Namespace) -> None:
 
 
 def cmd_stop(args: argparse.Namespace) -> None:
-    group_name = getattr(args, "group", None)
+    group_name = args.group
     cfg, _, state_dir = _load_config(args.config, args.model, group_name)
     project_dir = Path.cwd().resolve()
     stop_file = _watcher_stop_file(cfg, project_dir, state_dir, group_name)

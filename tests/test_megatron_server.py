@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from inference.megatron_server import MegatronServerConfig, render, submit
+from tools.inference.megatron_server import MegatronServerConfig, render, submit
 
 
 def _config(**changes: Any) -> MegatronServerConfig:
@@ -93,7 +93,7 @@ class DynamicServerTest(unittest.TestCase):
     def test_submit_creates_log_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _config(log_dir=str(Path(tmp) / "logs"))
-            with patch("inference.megatron_server._sbatch", return_value="123"):
+            with patch("tools.inference.megatron_server._sbatch", return_value="123"):
                 self.assertEqual(submit(cfg), "123")
             self.assertTrue((Path(cfg.log_dir) / cfg.name).is_dir())
 

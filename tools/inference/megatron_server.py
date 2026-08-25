@@ -187,7 +187,7 @@ def _shell_double_quote(value: str) -> str:
 
 
 def render(cfg: MegatronServerConfig) -> str:
-    """Render a one-node, one-Slurm-task-per-GPU server job."""
+    """Render a one-Slurm-task-per-GPU server job."""
     _validate(cfg)
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),

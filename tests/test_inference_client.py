@@ -2,7 +2,7 @@ import io
 import unittest
 from unittest.mock import patch
 
-from inference.client import _text, interactive, request
+from tools.inference.client import _text, interactive, request
 
 
 class _Response:
@@ -44,7 +44,7 @@ class InferenceClientTest(unittest.TestCase):
         ]
         with (
             patch("builtins.input", side_effect=["first", "second", "/quit"]),
-            patch("inference.client.request", side_effect=responses) as send,
+            patch("tools.inference.client.request", side_effect=responses) as send,
             patch("sys.stdout", new_callable=io.StringIO) as output,
         ):
             interactive(

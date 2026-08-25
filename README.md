@@ -214,16 +214,20 @@ Important fields:
 - `MegatronEvalConfig.install_commands`: raw shell commands run once per node inside the eval `srun` shell before `lm_eval` starts; sibling ranks wait for the local install to finish. Use this for per-eval package installation.
 - `MegatronEvalConfig.eval_runs`: optional `LMEvalRunConfig` entries with per-run tasks, lm-eval overrides, environments, outputs, and WandB names/IDs. `submit_evaluations()` independently groups checkpoints and runs into shared or separate allocations.
 - `HFConversionConfig`: submits a local or Git-backed hfconverter checkout's Stage-2 CLI, using refreshed locked caches and commit-specific worktrees for URLs, and reusing completed HF outputs unless explicit recreation is requested.
-- `VLLMEvalConfig`: launches a configurable vLLM evaluation runner against an HF model using either one Slurm task per node with torchrun workers or one Slurm task per GPU. It can depend on a newly submitted conversion job. See [`evals/README.md`](evals/README.md#vllm).
+- `VLLMEvalConfig`: runs lm-evaluation-harness with its standard `--model vllm` backend against an HF model. It supports the adapter's documented tensor and data parallel options on one Slurm node and can depend on a newly submitted conversion job. See [`evals/README.md`](evals/README.md#vllm).
 
 `srun_extra_args` is not the same as `extra`.
 
-## Dynamic inference HTTP server
+## Tools
 
-[`inference/megatron_server.py`](inference/megatron_server.py) renders and submits Megatron's dynamic text-generation server as a multi-node Slurm job. It uses one Slurm task per GPU (no `torchrun`), installs Quart and Hypercorn once per node inside the containerized step, and enables dynamic batching and CUDA graphs. Checkpoint-specific configs belong in the experiment repository that owns the checkpoint.
+Standalone operational launchers live under [`tools/`](tools/). They are separate from training experiments and evaluation pipelines.
+
+### Dynamic inference HTTP server
+
+[`tools/inference/megatron_server.py`](tools/inference/megatron_server.py) renders and submits Megatron's dynamic text-generation server as a multi-node Slurm job. It uses one Slurm task per GPU (no `torchrun`), installs Quart and Hypercorn once per node inside the containerized step, and enables dynamic batching and CUDA graphs. Checkpoint-specific configs belong in the experiment repository that owns the checkpoint.
 
 ```python
-from inference.megatron_server import MegatronServerConfig, submit
+from tools.inference.megatron_server import MegatronServerConfig, submit
 
 submit(MegatronServerConfig(
     name="my-model-step-3000",
@@ -243,11 +247,32 @@ Interact with it using curl or the dependency-free Python client:
 
 ```bash
 export INFERENCE_SERVER_URL="http://${COMPUTE_HOST}:5000"
-python -m inference.client health
-python -m inference.client interactive
+python -m tools.inference.client health
+python -m tools.inference.client interactive
 ```
 
-See [`inference/examples/megatron_server.py`](inference/examples/megatron_server.py) for a complete placeholder configuration and [`inference/README.md`](inference/README.md) for container, tunnel, chat, and curl examples. The server has no built-in authentication.
+See [`tools/inference/examples/megatron_server.py`](tools/inference/examples/megatron_server.py) for a complete placeholder configuration and [`tools/inference/README.md`](tools/inference/README.md) for container, tunnel, chat, and curl examples. The server has no built-in authentication.
+
+### Checkpoint merge
+
+[`tools/merge/checkpoint.py`](tools/merge/checkpoint.py) renders and submits the distributed `tools/checkpoint/merge.py` added to Megatron-LM-MoE in commit [`38f36a8`](https://github.com/andresnowak/Megatron-LM-MoE/commit/38f36a887d5be7ea3c4932d5a958ffc9b0dc87a8). It supports mean and linear-decay weight-space merges, one checkpoint root with multiple steps or multiple checkpoint paths, and configurable Slurm workers.
+
+```python
+from tools.merge import CheckpointMergeConfig, submit
+
+submit(CheckpointMergeConfig(
+    name="model-steps-1000-2000",
+    checkpoints=["/path/to/checkpoints/model"],
+    checkpoint_steps=[1000, 2000],
+    output="/path/to/checkpoints/model-merged",
+    megatron_path="/path/to/Megatron-LM",
+    workers_per_node=4,
+    account="infra01",
+    partition="normal",
+))
+```
+
+See [`tools/merge/README.md`](tools/merge/README.md) for container and backend options.
 
 ## Locking experiments
 
@@ -326,6 +351,12 @@ spellbook/
   megatron/
     experiment.py
     flags.py
+tools/
+  inference/
+    megatron_server.py
+    client.py
+  merge/
+    checkpoint.py
 experiments/
   big_moe_speed_ablations/
   big_moe_speed_ablations_example/

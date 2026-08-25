@@ -380,6 +380,9 @@ class MegatronPathTest(unittest.TestCase):
             config="config.py",
             interval=0.5,
             model=None,
+            group=None,
+            eval_job_name=None,
+            dependency_singleton=False,
             consumed_tokens_per_step=None,
         )
         completed = subprocess.CompletedProcess(
@@ -404,7 +407,9 @@ class MegatronPathTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _config("/path/to/Megatron-LM")
             stop_file = Path(tmp) / ".watcher_stop"
-            args = argparse.Namespace(config="config.py", model=None)
+            args = argparse.Namespace(
+                config="config.py", model=None, group=None
+            )
             completed = subprocess.CompletedProcess(
                 ["scancel"], returncode=0, stdout="", stderr=""
             )
