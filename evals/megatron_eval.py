@@ -292,6 +292,15 @@ def _render_checkpoints(
     runs: tuple[LMEvalRunConfig | None, ...] = (
         tuple(cfg.eval_runs) if cfg.eval_runs else (None,)
     )
+    ctx["dataset_prefetch_runs"] = [
+        {
+            "tasks": run.tasks if run is not None else cfg.tasks,
+            "include_path": (
+                run.lm_eval_args.get("include_path") if run is not None else None
+            ),
+        }
+        for run in runs
+    ]
     for ckpt_step, consumed_tokens in checkpoints:
         checkpoint_output = model_output_dir / f"step_{ckpt_step}"
         for run in runs:

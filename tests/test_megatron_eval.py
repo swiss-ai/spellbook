@@ -151,15 +151,30 @@ class MegatronPathTest(unittest.TestCase):
         cfg.dataset_prefetch = {"task": ["dataset"]}
         script = _render(cfg, 10, False)
 
+        derived = script.index("get_task_dict(")
         status = script.index("PREFETCH_STATUS=")
+        publish = script.index('printf "%s\\n" "${PREFETCH_RC}"')
         wait = script.index('while [[ ! -f "${PREFETCH_STATUS}" ]]')
         offline = script.index("export HF_HUB_OFFLINE=1")
-        self.assertLess(status, wait)
+        self.assertLess(status, derived)
+        self.assertLess(derived, publish)
+        self.assertLess(publish, wait)
         self.assertLess(wait, offline)
         self.assertIn("Dataset prefetch failed with exit code", script)
         self.assertIn("timeout --signal=TERM 1800s python", script)
         self.assertNotIn("timeout --signal=TERM 1800s python3", script)
         self.assertIn("Timed out waiting for dataset prefetch status", script)
+        self.assertIn('lm_eval_version = version("lm_eval")', script)
+
+        cfg.eval_runs = [
+            LMEvalRunConfig(
+                name="custom",
+                tasks=["custom_task"],
+                lm_eval_args={"include_path": "/tasks"},
+            )
+        ]
+        script = _render(cfg, 10, False)
+        self.assertIn('TaskManager(include_path="/tasks")', script)
 
     def test_missing_dotenv_file_is_allowed(self) -> None:
         script = _render(_config("/path/to/Megatron-LM"), 10, False)

@@ -19,6 +19,10 @@ owns the experiments and checkpoint paths, rather than in Spellbook itself.
 
 ## vLLM
 
+> **Status:** The vLLM evaluation path is not correctly implemented end to end
+> and is not production-ready. Existing configuration and rendering support
+> should not be interpreted as a working or validated evaluator.
+
 ```python
 from evals.hf_conversion import HFConversionConfig, submit as submit_conversion
 from evals.vllm_eval import VLLMEvalConfig, submit as submit_eval

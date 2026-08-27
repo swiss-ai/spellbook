@@ -37,6 +37,7 @@ Launching one Python process per Slurm task instead of torchrun::
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import re
 import shlex
@@ -117,6 +118,12 @@ class SlurmBackend:
     srun_extra_args: str = ""              # extra flags appended verbatim to every srun call
     env_vars: dict[str, Any] = field(default_factory=dict)  # infrastructure env vars exported by backend
     pythonpath_env_vars: list[str] = field(default_factory=list)  # env var names whose values are prepended to PYTHONPATH
+    kernel_cache: bool = False
+    kernel_cache_root: str = "${SCRATCH:-/iopsstor/scratch/cscs/$USER}/tmp/spellbook/kernel-cache"
+    kernel_cache_key_fields: tuple[str, ...] = ("container", "megatron", "experiment")
+    kernel_cache_key_values: dict[str, str] = field(default_factory=dict)
+    kernel_cache_warmup_steps: int | None = None
+    kernel_cache_sync_timeout: int = 900
     extra: dict[str, Any] = field(default_factory=dict)
 
     def _git_metadata(self, path: str) -> dict[str, str]:
@@ -247,6 +254,9 @@ class SlurmBackend:
         tmpl = env.get_template(self._template_name())
 
         d = experiment.to_dict()
+        kernel_cache_experiment_hash = hashlib.sha256(
+            json.dumps(d, sort_keys=True, default=str, separators=(",", ":")).encode()
+        ).hexdigest()
         container_path = str(d.get("megatron_container_path") or "").rstrip("/")
         if (
             not container_path.startswith("/")
@@ -317,6 +327,43 @@ class SlurmBackend:
                 "base_data_path is set — no data path will be configured.",
                 stacklevel=2,
             )
+
+        # Kernel (triton/torch) cache warmup
+        allowed_cache_key_fields = {"container", "megatron", "experiment"}
+        unknown_cache_key_fields = set(self.kernel_cache_key_fields) - allowed_cache_key_fields
+        if unknown_cache_key_fields:
+            raise ValueError(
+                f"Unsupported kernel_cache_key_fields: {sorted(unknown_cache_key_fields)}"
+            )
+        if self.kernel_cache and not (
+            self.kernel_cache_key_fields or self.kernel_cache_key_values
+        ):
+            raise ValueError("kernel cache key must contain at least one field or value")
+        if self.kernel_cache_warmup_steps is not None:
+            if not self.kernel_cache:
+                raise ValueError("kernel_cache_warmup_steps requires kernel_cache=True")
+            if self.kernel_cache_warmup_steps <= 0:
+                raise ValueError("kernel_cache_warmup_steps must be greater than zero")
+            if self.auto_requeue:
+                raise ValueError("kernel cache warmup cannot use auto_requeue")
+            training_args = self._remove_training_arg(
+                d.get("training_args") or [], "--exit-interval"
+            )
+            global_batch_size = int(d.get("gbs") or d.get("global_batch_size") or 0)
+            if global_batch_size:
+                training_args = [
+                    *self._remove_training_arg(training_args, "--train-samples"),
+                    "--train-samples",
+                    self.kernel_cache_warmup_steps * global_batch_size,
+                ]
+            d["training_args"] = [
+                *training_args,
+                "--exit-interval",
+                self.kernel_cache_warmup_steps,
+            ]
+        if self.kernel_cache_sync_timeout <= 0:
+            raise ValueError("kernel_cache_sync_timeout must be greater than zero")
+
         d["training_args_lines"] = self._format_training_args_lines(
             d.get("training_args") or []
         )
@@ -384,6 +431,18 @@ class SlurmBackend:
             "srun_export_vars": srun_export_vars,
             "mem_estimator_path": mem_estimator_path,
             "theoretical_memory": self.theoretical_memory,
+            "kernel_cache": self.kernel_cache,
+            "kernel_cache_root": self.kernel_cache_root,
+            "kernel_cache_key_fields": self.kernel_cache_key_fields,
+            "kernel_cache_experiment_hash": kernel_cache_experiment_hash,
+            "kernel_cache_key_values_hash": hashlib.sha256(
+                repr(sorted(self.kernel_cache_key_values.items())).encode()
+            ).hexdigest(),
+            "kernel_cache_warmup_steps": self.kernel_cache_warmup_steps,
+            "kernel_cache_sync_timeout": self.kernel_cache_sync_timeout,
+            "kernel_cache_tasks_per_node": (
+                self.gpus_per_node if self.launch_mode == "tasks" else 1
+            ),
         }
         return tmpl.render(ctx)
 

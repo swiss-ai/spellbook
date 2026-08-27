@@ -94,11 +94,15 @@ export {{ key }}="{{ value }}"
 {%- endif %}
 {%- endfor %}
 
+{% if kernel_cache %}
+{% include "kernel_cache.sh.j2" %}
+{% else %}
 # Per-process Triton / inductor caches on local storage
 export TRITON_HOME=/tmp/.triton/${SLURM_PROCID}
 export TRITON_CACHE_DIR=${TRITON_HOME}/cache
 export TORCHINDUCTOR_CACHE_DIR=/tmp/.torch_inductor/${SLURM_PROCID}
 mkdir -p ${TRITON_CACHE_DIR} ${TORCHINDUCTOR_CACHE_DIR}
+{% endif %}
 
 {% if install_commands is defined and install_commands %}
 # --- Install packages ---

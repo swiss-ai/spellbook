@@ -121,6 +121,73 @@ class DataPathTest(unittest.TestCase):
         self.assertIn('if [[ "${SLURM_LOCALID:-0}" == "0" ]]', script)
         self.assertIn("Package installation failed", script)
 
+    def test_kernel_cache_defaults_to_full_identity(self) -> None:
+        experiment = _experiment(
+            megatron_path="/source/Megatron-LM",
+            data_path="/data/prefix",
+        )
+
+        script = _container_backend(
+            launch_mode="tasks",
+            kernel_cache=True,
+        ).render(experiment)
+
+        self.assertIn(
+            'SPELLBOOK_KERNEL_CACHE_ROOT="${SCRATCH:-/iopsstor/scratch/cscs/$USER}/tmp/spellbook/kernel-cache"',
+            script,
+        )
+        self.assertIn('container=${SPELLBOOK_KERNEL_CACHE_CONTAINER}', script)
+        self.assertIn('megatron=${MEGATRON_GIT_COMMIT:-unknown}', script)
+        self.assertIn('printf "%s\\n" "experiment=', script)
+        self.assertIn('SPELLBOOK_LOCAL_CACHE_ROOT="/tmp/spellbook-kernel-cache/', script)
+        self.assertIn('export TRITON_CACHE_DIR="${TRITON_HOME}/cache"', script)
+        self.assertIn('export TORCHINDUCTOR_CACHE_DIR=', script)
+        self.assertIn('touch "${SPELLBOOK_KERNEL_CACHE_PATH}/.complete"', script)
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+    def test_kernel_cache_key_and_warmup_are_configurable(self) -> None:
+        experiment = _experiment(
+            megatron_path="/source/Megatron-LM",
+            data_path="/data/prefix",
+            gbs=8,
+            extra_args=["--exit-interval", "100"],
+        )
+
+        script = _container_backend(
+            kernel_cache=True,
+            kernel_cache_key_fields=("container", "megatron"),
+            kernel_cache_key_values={"fla": "0.5.2"},
+            kernel_cache_warmup_steps=6,
+        ).render(experiment)
+
+        self.assertIn('megatron=${MEGATRON_GIT_COMMIT:-unknown}', script)
+        self.assertIn("--exit-interval 6", script)
+        self.assertIn("--train-samples 48", script)
+        self.assertNotIn("--exit-interval 100", script)
+        self.assertIn("Kernel cache already exists; skipping warmup", script)
+        self.assertGreater(
+            script.index('trap "spellbook_kernel_cache_save'),
+            script.index("Kernel cache already exists; skipping warmup"),
+        )
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+    def test_kernel_cache_rejects_invalid_configuration(self) -> None:
+        experiment = _experiment(data_path="/data/prefix")
+
+        with self.assertRaisesRegex(ValueError, "requires kernel_cache=True"):
+            _backend(kernel_cache_warmup_steps=6).render(experiment)
+        with self.assertRaisesRegex(ValueError, "Unsupported kernel_cache_key_fields"):
+            _backend(
+                kernel_cache=True,
+                kernel_cache_key_fields=("python",),
+            ).render(experiment)
+        with self.assertRaisesRegex(ValueError, "cannot use auto_requeue"):
+            _backend(
+                kernel_cache=True,
+                kernel_cache_warmup_steps=6,
+                auto_requeue=True,
+            ).render(experiment)
+
     def test_task_mode_can_profile_selected_launcher_ranks_with_custom_nsys_args(self) -> None:
         experiment = _experiment(
             megatron_path="/source/Megatron-LM",

@@ -1,0 +1,113 @@
+# Stage a versioned kernel cache from shared scratch into node-local RAM.
+SPELLBOOK_KERNEL_CACHE_ROOT="{{ kernel_cache_root }}"
+SPELLBOOK_KERNEL_CACHE_CONTAINER="{{ container_edf | default('') }}"
+SPELLBOOK_KERNEL_CACHE_KEY="$({
+  printf "%s\n" "spellbook-kernel-cache-v1"
+{% if "container" in kernel_cache_key_fields %}
+  printf "%s\n" "container=${SPELLBOOK_KERNEL_CACHE_CONTAINER}"
+  if [[ -f "${SPELLBOOK_KERNEL_CACHE_CONTAINER}" ]]; then
+    sha256sum "${SPELLBOOK_KERNEL_CACHE_CONTAINER}"
+  fi
+{% endif %}
+{% if "megatron" in kernel_cache_key_fields %}
+  printf "%s\n" "megatron=${MEGATRON_GIT_COMMIT:-unknown}"
+{% endif %}
+{% if "experiment" in kernel_cache_key_fields %}
+  printf "%s\n" "experiment={{ kernel_cache_experiment_hash }}"
+{% endif %}
+{% if kernel_cache_key_values_hash %}
+  printf "%s\n" "values={{ kernel_cache_key_values_hash }}"
+{% endif %}
+} | sha256sum | cut -d " " -f 1)"
+SPELLBOOK_KERNEL_CACHE_PATH="${SPELLBOOK_KERNEL_CACHE_ROOT}/${SPELLBOOK_KERNEL_CACHE_KEY}"
+SPELLBOOK_LOCAL_CACHE_ROOT="/tmp/spellbook-kernel-cache/${SPELLBOOK_KERNEL_CACHE_KEY}/${SLURM_JOB_ID:-local}/node-${SLURM_NODEID:-0}"
+SPELLBOOK_CACHE_READY="${SPELLBOOK_LOCAL_CACHE_ROOT}/.ready"
+SPELLBOOK_KERNEL_CACHE_HIT=0
+
+if [[ "${SLURM_LOCALID:-0}" == "0" ]]; then
+  rm -rf "${SPELLBOOK_LOCAL_CACHE_ROOT}"
+  mkdir -p "${SPELLBOOK_KERNEL_CACHE_ROOT}" "${SPELLBOOK_LOCAL_CACHE_ROOT}/triton" "${SPELLBOOK_LOCAL_CACHE_ROOT}/inductor"
+  exec 8>"${SPELLBOOK_KERNEL_CACHE_ROOT}/.${SPELLBOOK_KERNEL_CACHE_KEY}.lock"
+  if ! flock -s -w "{{ kernel_cache_sync_timeout }}" 8; then
+    echo "Timed out locking persistent kernel cache for reading" >&2
+    exit 1
+  fi
+  if [[ -f "${SPELLBOOK_KERNEL_CACHE_PATH}/.complete" ]]; then
+    cp -a "${SPELLBOOK_KERNEL_CACHE_PATH}/triton/." "${SPELLBOOK_LOCAL_CACHE_ROOT}/triton/" 2>/dev/null || true
+    cp -a "${SPELLBOOK_KERNEL_CACHE_PATH}/inductor/." "${SPELLBOOK_LOCAL_CACHE_ROOT}/inductor/" 2>/dev/null || true
+    SPELLBOOK_KERNEL_CACHE_HIT=1
+    echo "Loaded kernel cache ${SPELLBOOK_KERNEL_CACHE_KEY}"
+  else
+    echo "Kernel cache miss: ${SPELLBOOK_KERNEL_CACHE_KEY}"
+  fi
+  flock -u 8
+  printf "%s\n" "${SPELLBOOK_KERNEL_CACHE_HIT}" > "${SPELLBOOK_CACHE_READY}"
+else
+  deadline=$((SECONDS + {{ kernel_cache_sync_timeout }}))
+  while [[ ! -f "${SPELLBOOK_CACHE_READY}" && "${SECONDS}" -lt "${deadline}" ]]; do sleep 1; done
+  [[ -f "${SPELLBOOK_CACHE_READY}" ]] || { echo "Timed out waiting for node-local kernel cache" >&2; exit 1; }
+  SPELLBOOK_KERNEL_CACHE_HIT="$(<"${SPELLBOOK_CACHE_READY}")"
+fi
+
+export TRITON_HOME="${SPELLBOOK_LOCAL_CACHE_ROOT}/triton"
+export TRITON_CACHE_DIR="${TRITON_HOME}/cache"
+export TORCHINDUCTOR_CACHE_DIR="${SPELLBOOK_LOCAL_CACHE_ROOT}/inductor"
+mkdir -p "${TRITON_CACHE_DIR}" "${TORCHINDUCTOR_CACHE_DIR}"
+
+spellbook_kernel_cache_save() {
+  train_rc="$1"
+  status_dir="${SPELLBOOK_LOCAL_CACHE_ROOT}/status"
+  mkdir -p "${status_dir}"
+  printf "%s\n" "${train_rc}" > "${status_dir}/task-${SLURM_LOCALID:-0}"
+
+  if [[ "${SLURM_LOCALID:-0}" != "0" ]]; then
+    return "${train_rc}"
+  fi
+
+  deadline=$((SECONDS + {{ kernel_cache_sync_timeout }}))
+  while [[ "$(find "${status_dir}" -maxdepth 1 -name "task-*" -type f | wc -l)" -lt "{{ kernel_cache_tasks_per_node }}" && "${SECONDS}" -lt "${deadline}" ]]; do sleep 1; done
+  if [[ "$(find "${status_dir}" -maxdepth 1 -name "task-*" -type f | wc -l)" -lt "{{ kernel_cache_tasks_per_node }}" ]]; then
+    echo "Timed out waiting for local cache writers" >&2
+    return 1
+  fi
+  if grep -qv "^0$" "${status_dir}"/task-*; then
+    return 1
+  fi
+
+  mkdir -p "${SPELLBOOK_KERNEL_CACHE_ROOT}" "${SPELLBOOK_KERNEL_CACHE_PATH}"
+  exec 9>"${SPELLBOOK_KERNEL_CACHE_ROOT}/.${SPELLBOOK_KERNEL_CACHE_KEY}.lock"
+  if ! flock -w "{{ kernel_cache_sync_timeout }}" 9; then
+    echo "Timed out locking persistent kernel cache" >&2
+    return 1
+  fi
+  mkdir -p "${SPELLBOOK_KERNEL_CACHE_PATH}/triton" "${SPELLBOOK_KERNEL_CACHE_PATH}/inductor"
+  cp -a "${TRITON_HOME}/." "${SPELLBOOK_KERNEL_CACHE_PATH}/triton/"
+  cp -a "${TORCHINDUCTOR_CACHE_DIR}/." "${SPELLBOOK_KERNEL_CACHE_PATH}/inductor/"
+  flock -u 9
+
+  job_status_dir="${SPELLBOOK_KERNEL_CACHE_PATH}/.jobs/${SLURM_JOB_ID:-local}"
+  mkdir -p "${job_status_dir}"
+  printf "0\n" > "${job_status_dir}/node-${SLURM_NODEID:-0}"
+  if [[ "${SLURM_NODEID:-0}" == "0" ]]; then
+    deadline=$((SECONDS + {{ kernel_cache_sync_timeout }}))
+    while [[ "$(find "${job_status_dir}" -maxdepth 1 -name "node-*" -type f | wc -l)" -lt "${SLURM_NNODES:-{{ nodes }}}" && "${SECONDS}" -lt "${deadline}" ]]; do sleep 1; done
+    if [[ "$(find "${job_status_dir}" -maxdepth 1 -name "node-*" -type f | wc -l)" -eq "${SLURM_NNODES:-{{ nodes }}}" ]]; then
+      touch "${SPELLBOOK_KERNEL_CACHE_PATH}/.complete"
+      echo "Saved kernel cache ${SPELLBOOK_KERNEL_CACHE_KEY}"
+    else
+      echo "Timed out waiting for all nodes to save the kernel cache" >&2
+      return 1
+    fi
+  fi
+  rm -rf "${SPELLBOOK_LOCAL_CACHE_ROOT}"
+  return "${train_rc}"
+}
+
+{% if kernel_cache_warmup_steps is not none %}
+if [[ "${SPELLBOOK_KERNEL_CACHE_HIT}" == "1" ]]; then
+  echo "Kernel cache already exists; skipping warmup"
+  exit 0
+fi
+{% endif %}
+
+trap "spellbook_kernel_cache_save \$?" EXIT

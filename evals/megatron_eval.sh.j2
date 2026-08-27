@@ -258,41 +258,7 @@ fi
 
 mkdir -p "${OUTPUT_DIR}"
 
-{% if dataset_prefetch %}
-# OUTPUT_DIR is shared by all nodes, so it also provides a global prefetch
-# barrier before ranks switch Hugging Face into offline mode.
-PREFETCH_STATUS="${OUTPUT_DIR}/.spellbook-dataset-prefetch-${SLURM_JOB_ID}.status"
-if [[ "${SLURM_PROCID}" == "0" ]]; then
-  set +e
-  (
-    set -e
-    timeout --signal=TERM {{ prefetch_timeout_seconds }}s python << '"'"'PYEOF'"'"'
-from datasets import load_dataset
-{% for task, args in dataset_prefetch.items() %}
-load_dataset({{ args | map("tojson") | join(", ") }})
-{% endfor %}
-PYEOF
-  )
-  PREFETCH_RC=$?
-  printf "%s\n" "${PREFETCH_RC}" > "${PREFETCH_STATUS}.tmp"
-  mv -f "${PREFETCH_STATUS}.tmp" "${PREFETCH_STATUS}"
-  set -e
-else
-  PREFETCH_DEADLINE=$((SECONDS + {{ prefetch_timeout_seconds }}))
-  while [[ ! -f "${PREFETCH_STATUS}" ]]; do
-    if (( SECONDS >= PREFETCH_DEADLINE )); then
-      echo "Timed out waiting for dataset prefetch status at ${PREFETCH_STATUS}" >&2
-      exit 124
-    fi
-    sleep 1
-  done
-  PREFETCH_RC="$(<"${PREFETCH_STATUS}")"
-fi
-if [[ "${PREFETCH_RC}" != "0" ]]; then
-  echo "Dataset prefetch failed with exit code ${PREFETCH_RC}" >&2
-  exit "${PREFETCH_RC}"
-fi
-{% endif %}
+{% include "dataset_prefetch.sh.j2" %}
 
 NPROC_PER_NODE={{ gpus_per_node }}
 NNODES=$(echo "$HOSTNAMES" | wc -l)

@@ -202,6 +202,9 @@ Important fields:
 - `extra`: generic Jinja template context (for example `container_edf`, `container_mounts`).
 - In `launch_mode="tasks"`, `extra` may also include `cpus_per_task`, `mem`, `no_requeue`, or raw `sbatch_extra_lines`.
 - `srun_extra_args`: extra raw flags inserted into every `srun` command. If this includes `--network=VALUE`, Spellbook also exports `SLURM_NETWORK=VALUE` before `srun` so the step inherits the same network setting.
+- `kernel_cache=True`: persist Triton and TorchInductor caches below `${SCRATCH}/tmp/spellbook/kernel-cache` and stage a matching cache into node-local `/tmp` before training. The default key covers the container, resolved Megatron commit, and experiment configuration; override `kernel_cache_key_fields` only when intentional cache sharing is safe. Add library versions installed outside the container with `kernel_cache_key_values={"fla": "0.5.2"}`. A successful distributed run unions caches from every node before marking the entry complete.
+- `kernel_cache_warmup_steps=6`: turn the job into a short cache-building run by replacing `--exit-interval`; this requires `kernel_cache=True` and cannot be combined with auto-requeue. A repeated warmup exits immediately when the matching persistent cache already exists.
+- `kernel_cache_root`: persistent cache location. It defaults to `${SCRATCH}/tmp/spellbook/kernel-cache`, falling back to `/iopsstor/scratch/cscs/$USER/tmp/spellbook/kernel-cache` when `SCRATCH` is unset.
 - `reservation`: added to sbatch header and sbatch invocation.
 - `auto_requeue=True`: submit a singleton-dependent successor before training starts.
 - `auto_requeue_stop_regex`: an extended regular expression checked against the completed job's Slurm stdout log. It defaults to Megatron's normal-completion marker, `r"\[after training is done\] datetime:"`. When it matches, Spellbook cancels the successor submitted by `auto_requeue`, allowing an auto-requeue chain to stop after training finishes. Set it to `""` to disable the completion check or override it for another trainer.
@@ -214,7 +217,7 @@ Important fields:
 - `MegatronEvalConfig.install_commands`: raw shell commands run once per node inside the eval `srun` shell before `lm_eval` starts; sibling ranks wait for the local install to finish. Use this for per-eval package installation.
 - `MegatronEvalConfig.eval_runs`: optional `LMEvalRunConfig` entries with per-run tasks, lm-eval overrides, environments, outputs, and WandB names/IDs. `submit_evaluations()` independently groups checkpoints and runs into shared or separate allocations.
 - `HFConversionConfig`: submits a local or Git-backed hfconverter checkout's Stage-2 CLI, using refreshed locked caches and commit-specific worktrees for URLs, and reusing completed HF outputs unless explicit recreation is requested.
-- `VLLMEvalConfig`: runs lm-evaluation-harness with its standard `--model vllm` backend against an HF model. It supports the adapter's documented tensor and data parallel options on one Slurm node and can depend on a newly submitted conversion job. See [`evals/README.md`](evals/README.md#vllm).
+- `VLLMEvalConfig`: experimental and not correctly implemented end to end; do not treat it as a functional evaluation path yet. The intended interface uses lm-evaluation-harness's standard `--model vllm` backend against an HF model and is documented in [`evals/README.md`](evals/README.md#vllm).
 
 `srun_extra_args` is not the same as `extra`.
 
