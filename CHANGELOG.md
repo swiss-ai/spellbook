@@ -18,6 +18,22 @@ Notable changes to Spellbook are documented here.
 - A fixed-interface hfconverter Stage-2 submission helper with local or Git URL
   sources, locked refreshed checkout caches, optional commit pinning,
   completed-output reuse, explicit recreation, and vLLM job dependencies.
+- Persistent, configuration-keyed Triton and TorchInductor caches with
+  node-local staging, distributed cache merging, and warmup-only runs.
+
+### Changed
+
+- Megatron evaluation prefetch now builds lm-eval task-derived dataset caches on
+  rank zero before releasing distributed ranks, including custom task paths.
+
+### Fixed
+
+- Cache-hit warmups no longer enter distributed cache-save cleanup.
+
+### Known limitations
+
+- The vLLM evaluation path is not correctly implemented end to end and is not
+  production-ready.
 
 ## 0.2.0 - 2026-08-06
 
