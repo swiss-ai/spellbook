@@ -79,7 +79,8 @@ class DynamicServerTest(unittest.TestCase):
         ):
             self.assertIn(expected, script)
         self.assertNotIn("--unused-flag", script)
-        self.assertNotIn('"--host"', script)
+        self.assertIn('"--host"', script)
+        self.assertIn('"${SERVER_HOST}"', script)
 
     def test_renders_multiple_nodes_and_total_task_count(self) -> None:
         script = render(_config(nodes=2, expert_parallel_size=8))
@@ -89,7 +90,8 @@ class DynamicServerTest(unittest.TestCase):
         self.assertIn("--nodes=2", script)
         self.assertIn("--ntasks=8", script)
         self.assertIn('${SLURM_NTASKS:-8}', script)
-        self.assertNotIn('"--host"', script)
+        self.assertIn('SERVER_HOSTS="$(hostname -I)"', script)
+        self.assertIn('"--host"', script)
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
 
     def test_installs_http_backend_once_inside_container_step(self) -> None:

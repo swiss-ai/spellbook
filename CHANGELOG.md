@@ -29,6 +29,8 @@ Notable changes to Spellbook are documented here.
 ### Fixed
 
 - Cache-hit warmups no longer enter distributed cache-save cleanup.
+- Megatron inference servers bind to each node's routable IP instead of assuming
+  its hostname names a local network interface.
 
 ### Known limitations
 
