@@ -64,6 +64,18 @@ class DataPathTest(unittest.TestCase):
                     'export MEGATRON_PATH="${MEGATRON_CONTAINER_PATH}"', script
                 )
 
+    def test_srun_inner_shell_propagates_training_pipeline_failures(self) -> None:
+        experiment = _experiment(
+            megatron_path="/source/Megatron-LM", data_path="/data/prefix"
+        )
+
+        script = _container_backend(srun_job_id="123").render(experiment)
+
+        # The training command is piped through tee inside `bash -lc`. The inner
+        # shell must set pipefail because it does not inherit the outer option.
+        self.assertIn("set -exo pipefail", script)
+        self.assertIn("2>&1 | tee", script)
+
     def test_theoretical_memory_uses_megatron_report_tool(self) -> None:
         experiment = _experiment(
             megatron_path="/users/anowak/open_source/Megatron-LM-MoE",

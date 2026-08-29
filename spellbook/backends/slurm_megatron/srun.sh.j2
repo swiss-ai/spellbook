@@ -59,7 +59,9 @@ srun \
   --no-container-mount-home \
   {{ srun_extra_args }} \
   -u bash -lc '
-set -x
+# This is a new shell; it does not inherit the outer pipefail option.
+# Keep torchrun failures visible through the rank-0 `| tee` log pipeline.
+set -exo pipefail
 ulimit -c 0
 
 export LOCAL_RANK=${SLURM_LOCALID}
