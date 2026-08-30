@@ -61,7 +61,6 @@ spellbook_health_check() {
 {%- if launch_mode == "tasks" %}
       --ntasks="$((nodes * {{ gpus_per_node }}))" \
       --ntasks-per-node={{ gpus_per_node }} \
-      --gpus-per-task=1 \
 {%- else %}
       --ntasks="${nodes}" \
       --ntasks-per-node=1 \
@@ -97,15 +96,26 @@ SPELLBOOK_HEALTH_COUNT="$(printf "%s\n" "${SPELLBOOK_HEALTH_NODES[@]}" | wc -l)"
 if ! spellbook_health_check \
     "${SPELLBOOK_HEALTH_NODE_CSV}" "${SPELLBOOK_HEALTH_COUNT}" 27800 \
     "${SPELLBOOK_HEALTH_JOB_DIR}/all.log"; then
+  if ! grep -q 'phase=start' "${SPELLBOOK_HEALTH_JOB_DIR}/all.log"; then
+    echo "Node health gate failed before the probe started; not excluding nodes" >&2
+    exit 1
+  fi
+  if (( SPELLBOOK_HEALTH_COUNT < 4 || SPELLBOOK_HEALTH_COUNT % 2 != 0 )); then
+    echo "Node health localization requires an even allocation of at least four nodes" >&2
+    exit 1
+  fi
   echo "Node health check failed; localizing unhealthy nodes" >&2
 
   spellbook_health_pair() {
     local round="$1" index="$2" first="$3" second="$4"
     local pair="${first},${second}"
-    if ! spellbook_health_check "${pair}" 2 "$((27800 + round * 100 + index))" \
-        "${SPELLBOOK_HEALTH_JOB_DIR}/round-${round}-${index}.log"; then
-      printf "%s\n%s\n" "${first}" "${second}" \
-        > "${SPELLBOOK_HEALTH_JOB_DIR}/round-${round}-${index}.failed"
+    local log="${SPELLBOOK_HEALTH_JOB_DIR}/round-${round}-${index}.log"
+    if ! spellbook_health_check "${pair}" 2 "$((27800 + round * 100 + index))" "${log}"; then
+      if grep -q 'phase=start' "${log}"; then
+        printf "%s\n%s\n" "${first}" "${second}" > "${log%.log}.failed"
+      else
+        : > "${log%.log}.infra"
+      fi
     fi
   }
 
@@ -123,6 +133,11 @@ if ! spellbook_health_check \
       "${SPELLBOOK_HEALTH_NODES[$((i + SPELLBOOK_HEALTH_HALF))]}" &
   done
   wait
+
+  if compgen -G "${SPELLBOOK_HEALTH_JOB_DIR}/*.infra" > /dev/null; then
+    echo "Node health pair launch failed before the probe started; not excluding nodes" >&2
+    exit 1
+  fi
 
   mapfile -t SPELLBOOK_HEALTH_BAD < <(
     cat "${SPELLBOOK_HEALTH_JOB_DIR}"/*.failed 2>/dev/null \
