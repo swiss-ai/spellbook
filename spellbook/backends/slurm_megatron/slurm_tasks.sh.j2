@@ -241,7 +241,9 @@ DEBUG_CMD="-m debugpy --listen 0.0.0.0:$(({{ debug_port }} + SLURM_PROCID)) --wa
 {% else %}
 DEBUG_CMD=""
 {% endif %}
+{% if numa_bind %}
 numactl --cpunodebind="${SLURM_LOCALID}" --membind="${SLURM_LOCALID}" \
+{% endif %}
   ${PROFILE_CMD} python ${DEBUG_CMD} ${MEGATRON_PATH}/{{ training_script }} \
   {{ training_args_lines | join(" \\\n  ") }} \
   ${DATA_PATH:+--data-path ${DATA_PATH}}

@@ -76,6 +76,21 @@ class DataPathTest(unittest.TestCase):
         self.assertIn("set -exo pipefail", script)
         self.assertIn("2>&1 | tee", script)
 
+    def test_task_launch_can_disable_numa_binding(self) -> None:
+        experiment = _experiment(
+            megatron_path="/source/Megatron-LM", data_path="/data/prefix"
+        )
+
+        bound = _container_backend(launch_mode="tasks").render(experiment)
+        unbound = _container_backend(launch_mode="tasks", numa_bind=False).render(
+            experiment
+        )
+
+        self.assertIn('numactl --cpunodebind="${SLURM_LOCALID}"', bound)
+        self.assertNotIn("numactl", unbound)
+        self.assertIn("python ${DEBUG_CMD} ${MEGATRON_PATH}/pretrain_gpt.py", unbound)
+        subprocess.run(["bash", "-n"], input=unbound, text=True, check=True)
+
     def test_task_launch_inherits_batch_task_layout(self) -> None:
         script = _container_backend(launch_mode="tasks").render(
             _experiment(megatron_path="/source/Megatron-LM", data_path="/data/prefix")
