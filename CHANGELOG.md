@@ -6,6 +6,8 @@ Notable changes to Spellbook are documented here.
 
 ### Added
 
+- An optional, self-contained pre-launch torch/NCCL node-health gate for Megatron batch experiments. It localizes failed nodes, maintains a shared exclusion list, and retries on a fresh allocation before training starts. The design is adapted from Guanshujie’s Megatron Slurm launcher.
+
 - A `tools` package for standalone operational launchers, containing the
   multi-node Megatron dynamic-inference HTTP server and a distributed Slurm
   launcher for Megatron checkpoint merging (e.g. checkpoint averaging)

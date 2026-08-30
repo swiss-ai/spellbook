@@ -72,6 +72,8 @@ export {{ key }}="{{ value }}"
 {%- endif %}
 {%- endfor %}
 
+{% include "node_health_gate.sh.j2" %}
+
 # --- Auto-requeue ---
 {% if auto_requeue %}
 AUTO_REQUEUE_SUBMISSION="$(sbatch --parsable --dependency=singleton{% if reservation %} --reservation={{ reservation }}{% endif %} "$0")"
@@ -88,6 +90,7 @@ echo "[$(date)] Auto-requeued job ${AUTO_REQUEUE_JOB_ID}"
 srun \
   --ntasks={{ total_tasks }} \
   --ntasks-per-node={{ gpus_per_node }} \
+  --kill-on-bad-exit=1 \
   --export={{ srun_export_vars }} \
   --mpi=pmix -l \
 {%- if container_edf is defined and container_edf %}

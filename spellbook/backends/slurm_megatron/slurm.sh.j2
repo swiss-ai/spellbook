@@ -52,6 +52,8 @@ export {{ key }}="{{ value }}"
 {%- endif %}
 {%- endfor %}
 
+{% include "node_health_gate.sh.j2" %}
+
 # --- Auto-requeue ---
 {% if auto_requeue %}
 AUTO_REQUEUE_SUBMISSION="$(sbatch --parsable --dependency=singleton{% if reservation %} --reservation={{ reservation }}{% endif %} "$0")"
@@ -122,6 +124,8 @@ mkdir -p ${TRITON_CACHE_DIR} ${TORCHINDUCTOR_CACHE_DIR}
 {% if install_commands is defined and install_commands %}
 # --- Install packages ---
 {{ install_commands }}
+{% endif %}
+
 # Publish readiness only after copy and package installation have completed.
 printf "%s\n" "$(hostname)" > "${SPELLBOOK_READY_DIR}/${SLURM_PROCID}.ready.tmp"
 mv -f "${SPELLBOOK_READY_DIR}/${SLURM_PROCID}.ready.tmp" "${SPELLBOOK_READY_DIR}/${SLURM_PROCID}.ready"
@@ -139,7 +143,6 @@ while true; do
   sleep 1
 done
 
-{% endif %}
 
 # --- Data path ---
 {% if data_path %}

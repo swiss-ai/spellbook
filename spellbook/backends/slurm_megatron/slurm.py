@@ -115,6 +115,9 @@ class SlurmBackend:
     launch_mode: str = "torchrun"          # "torchrun" or "tasks"; tasks runs python directly per Slurm task
     auto_requeue: bool = False             # submit next job before srun (sbatch --dependency=singleton $0)
     auto_requeue_stop_regex: str = r"\[after training is done\] datetime:"
+    node_health_gate: bool = False          # test torch/NCCL before batch experiment launches
+    node_health_gate_timeout: int = 120
+    node_health_gate_max_excluded_nodes: int = 256
     srun_extra_args: str = ""              # extra flags appended verbatim to every srun call
     env_vars: dict[str, Any] = field(default_factory=dict)  # infrastructure env vars exported by backend
     pythonpath_env_vars: list[str] = field(default_factory=list)  # env var names whose values are prepended to PYTHONPATH
@@ -363,6 +366,10 @@ class SlurmBackend:
             ]
         if self.kernel_cache_sync_timeout <= 0:
             raise ValueError("kernel_cache_sync_timeout must be greater than zero")
+        if self.node_health_gate_timeout <= 0:
+            raise ValueError("node_health_gate_timeout must be greater than zero")
+        if self.node_health_gate_max_excluded_nodes <= 0:
+            raise ValueError("node_health_gate_max_excluded_nodes must be greater than zero")
 
         d["training_args_lines"] = self._format_training_args_lines(
             d.get("training_args") or []
@@ -420,10 +427,15 @@ class SlurmBackend:
             "dependency_singleton": self.dependency_singleton,
             "auto_requeue": self.auto_requeue,
             "auto_requeue_stop_regex": self.auto_requeue_stop_regex,
+            "node_health_gate": self.node_health_gate,
+            "node_health_gate_timeout": self.node_health_gate_timeout,
+            "node_health_gate_max_excluded_nodes": self.node_health_gate_max_excluded_nodes,
+            "node_health_gate_key": hashlib.sha256(experiment.name.encode()).hexdigest()[:16],
             "auto_requeue_stop_regex_shell": shlex.quote(
                 self.auto_requeue_stop_regex
             ),
             "srun_job_id": self.srun_job_id,
+            "launch_mode": self.launch_mode,
             "srun_extra_args": self.srun_extra_args,
             "srun_extra_arg_env_vars": srun_extra_arg_env_vars,
             "pythonpath_env_vars": self.pythonpath_env_vars,

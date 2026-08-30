@@ -76,6 +76,30 @@ class DataPathTest(unittest.TestCase):
         self.assertIn("set -exo pipefail", script)
         self.assertIn("2>&1 | tee", script)
 
+    def test_node_health_gate_is_self_contained_and_batch_only(self) -> None:
+        experiment = _experiment(
+            megatron_path="/source/Megatron-LM", data_path="/data/prefix"
+        )
+
+        for mode in ("torchrun", "tasks"):
+            with self.subTest(mode=mode):
+                script = _container_backend(
+                    launch_mode=mode, node_health_gate=True
+                ).render(experiment)
+                self.assertIn("Pre-launch node health gate", script)
+                self.assertIn("torch.distributed", script)
+                self.assertIn("--kill-on-bad-exit=1", script)
+                self.assertLess(
+                    script.index("Pre-launch node health gate"),
+                    script.index("# --- Auto-requeue ---"),
+                )
+                subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+        script = _container_backend(
+            srun_job_id="123", node_health_gate=True
+        ).render(experiment)
+        self.assertNotIn("Pre-launch node health gate", script)
+
     def test_theoretical_memory_uses_megatron_report_tool(self) -> None:
         experiment = _experiment(
             megatron_path="/users/anowak/open_source/Megatron-LM-MoE",
