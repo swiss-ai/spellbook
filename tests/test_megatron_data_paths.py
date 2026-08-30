@@ -76,6 +76,18 @@ class DataPathTest(unittest.TestCase):
         self.assertIn("set -exo pipefail", script)
         self.assertIn("2>&1 | tee", script)
 
+    def test_task_launch_inherits_batch_task_layout(self) -> None:
+        script = _container_backend(launch_mode="tasks").render(
+            _experiment(megatron_path="/source/Megatron-LM", data_path="/data/prefix")
+        )
+
+        self.assertIn("#SBATCH --ntasks-per-node=1", script)
+        self.assertIn("#SBATCH --gpus-per-node=1", script)
+        launch = script.split("# --- Launch ---", 1)[1]
+        self.assertNotIn("--ntasks=", launch)
+        self.assertNotIn("--ntasks-per-node=", launch)
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
     def test_container_launch_isolates_python_environment(self) -> None:
         experiment = _experiment(
             megatron_path="/source/Megatron-LM",

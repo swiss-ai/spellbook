@@ -89,8 +89,6 @@ echo "[$(date)] Auto-requeued job ${AUTO_REQUEUE_JOB_ID}"
 
 # --- Launch ---
 srun \
-  --ntasks={{ total_tasks }} \
-  --ntasks-per-node={{ gpus_per_node }} \
   --kill-on-bad-exit=1 \
   --export={{ srun_export_vars }} \
 {%- if container_edf is defined and container_edf %}
