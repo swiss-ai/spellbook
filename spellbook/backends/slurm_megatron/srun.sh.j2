@@ -64,6 +64,21 @@ srun \
 set -exo pipefail
 ulimit -c 0
 
+# Global readiness barrier on IOPStor. Each rank publishes completion of
+# Megatron copy/package setup before any rank launches the training process.
+SPELLBOOK_READY_DIR="${SPELLBOOK_READY_DIR:-${SCRATCH:-/iopsstor/scratch/cscs/${USER}}/tmp/spellbook-readiness/${SLURM_JOB_ID}}"
+SPELLBOOK_READY_TIMEOUT="${SPELLBOOK_READY_TIMEOUT:-600}"
+if [[ "${SLURM_PROCID}" == "0" ]]; then
+  rm -rf "${SPELLBOOK_READY_DIR}"
+  mkdir -p "${SPELLBOOK_READY_DIR}"
+  : > "${SPELLBOOK_READY_DIR}/.initialized"
+else
+  until [[ -f "${SPELLBOOK_READY_DIR}/.initialized" ]]; do
+    sleep 1
+  done
+fi
+
+
 export LOCAL_RANK=${SLURM_LOCALID}
 export RANK="${SLURM_PROCID}"
 
@@ -88,6 +103,23 @@ export TRITON_CACHE_DIR=${TRITON_HOME}/cache
 export TORCHINDUCTOR_CACHE_DIR=/tmp/.torch_inductor/${SLURM_PROCID}
 mkdir -p ${TRITON_CACHE_DIR} ${TORCHINDUCTOR_CACHE_DIR}
 {% endif %}
+# Publish readiness only after copy and package installation have completed.
+printf "%s\n" "$(hostname)" > "${SPELLBOOK_READY_DIR}/${SLURM_PROCID}.ready.tmp"
+mv -f "${SPELLBOOK_READY_DIR}/${SLURM_PROCID}.ready.tmp" "${SPELLBOOK_READY_DIR}/${SLURM_PROCID}.ready"
+READY_WAIT_START="${SECONDS}"
+while true; do
+  READY_COUNT="$(find "${SPELLBOOK_READY_DIR}" -maxdepth 1 -type f -name '*.ready' | wc -l)"
+  if (( READY_COUNT >= SLURM_NTASKS )); then
+    break
+  fi
+  if (( SECONDS - READY_WAIT_START >= SPELLBOOK_READY_TIMEOUT )); then
+    echo "Timed out waiting for all ranks: ${READY_COUNT}/${SLURM_NTASKS} ready" >&2
+    find "${SPELLBOOK_READY_DIR}" -maxdepth 1 -type f -name '*.ready' -printf '%f\n' | sort >&2
+    exit 1
+  fi
+  sleep 1
+done
+
 {% if profile %}
 export NVTE_NVTX_ENABLED=1
 mkdir -p {{ nsys_output }}
