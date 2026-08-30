@@ -26,8 +26,8 @@ def log(phase: str) -> None:
     print(f"rank={rank} host={os.uname().nodename} local_rank={local_rank} phase={phase}", flush=True)
 
 
-log("start")
 torch.cuda.set_device(device)
+log("device_ready")
 dist.init_process_group(
     "nccl",
     init_method="env://",
@@ -90,14 +90,19 @@ spellbook_health_check() {
       >"${log}" 2>&1
 }
 
+spellbook_health_ready_count() {
+  sed -n 's/^rank=\([0-9][0-9]*\).*phase=device_ready$/\1/p' "$1" | sort -un | wc -l
+}
+
 mapfile -t SPELLBOOK_HEALTH_NODES < <(scontrol show hostnames "${SLURM_JOB_NODELIST}")
 SPELLBOOK_HEALTH_NODE_CSV="$(IFS=,; echo "${SPELLBOOK_HEALTH_NODES[*]}")"
 SPELLBOOK_HEALTH_COUNT="$(printf "%s\n" "${SPELLBOOK_HEALTH_NODES[@]}" | wc -l)"
 if ! spellbook_health_check \
     "${SPELLBOOK_HEALTH_NODE_CSV}" "${SPELLBOOK_HEALTH_COUNT}" 27800 \
     "${SPELLBOOK_HEALTH_JOB_DIR}/all.log"; then
-  if ! grep -q 'phase=start' "${SPELLBOOK_HEALTH_JOB_DIR}/all.log"; then
-    echo "Node health gate failed before the probe started; not excluding nodes" >&2
+  SPELLBOOK_HEALTH_READY="$(spellbook_health_ready_count "${SPELLBOOK_HEALTH_JOB_DIR}/all.log")"
+  if (( SPELLBOOK_HEALTH_READY != SPELLBOOK_HEALTH_COUNT * {{ gpus_per_node }} )); then
+    echo "Node health gate did not initialize every CUDA task; not excluding nodes" >&2
     exit 1
   fi
   if (( SPELLBOOK_HEALTH_COUNT < 4 || SPELLBOOK_HEALTH_COUNT % 2 != 0 )); then
@@ -111,7 +116,7 @@ if ! spellbook_health_check \
     local pair="${first},${second}"
     local log="${SPELLBOOK_HEALTH_JOB_DIR}/round-${round}-${index}.log"
     if ! spellbook_health_check "${pair}" 2 "$((27800 + round * 100 + index))" "${log}"; then
-      if grep -q 'phase=start' "${log}"; then
+      if (( $(spellbook_health_ready_count "${log}") == 2 * {{ gpus_per_node }} )); then
         printf "%s\n%s\n" "${first}" "${second}" > "${log%.log}.failed"
       else
         : > "${log%.log}.infra"
