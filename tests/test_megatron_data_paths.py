@@ -89,6 +89,9 @@ class DataPathTest(unittest.TestCase):
                 self.assertIn("Pre-launch node health gate", script)
                 self.assertIn("torch.distributed", script)
                 self.assertIn("--kill-on-bad-exit=1", script)
+                self.assertIn(
+                    'SPELLBOOK_HEALTH_JOB_DIR="${SPELLBOOK_HEALTH_JOB_DIR}"', script
+                )
                 self.assertLess(
                     script.index("Pre-launch node health gate"),
                     script.index("# --- Auto-requeue ---"),
