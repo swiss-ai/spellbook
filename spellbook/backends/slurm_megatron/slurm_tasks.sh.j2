@@ -105,7 +105,7 @@ srun \
   --container-workdir="{{ container_workdir }}" \
 {%- endif %}
   {{ srun_extra_args }} \
-  -u bash -lc '
+  -u bash {% if login_shell %}-lc{% else %}-c{% endif %} '
 set -x
 ulimit -c 0
 

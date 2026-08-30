@@ -76,6 +76,21 @@ class DataPathTest(unittest.TestCase):
         self.assertIn("set -exo pipefail", script)
         self.assertIn("2>&1 | tee", script)
 
+    def test_task_launch_can_skip_login_shell(self) -> None:
+        experiment = _experiment(
+            megatron_path="/source/Megatron-LM", data_path="/data/prefix"
+        )
+
+        login = _container_backend(launch_mode="tasks").render(experiment)
+        plain = _container_backend(launch_mode="tasks", login_shell=False).render(
+            experiment
+        )
+
+        self.assertIn("-u bash -lc '", login)
+        self.assertIn("-u bash -c '", plain)
+        self.assertNotIn("-u bash -lc '", plain)
+        subprocess.run(["bash", "-n"], input=plain, text=True, check=True)
+
     def test_task_launch_can_disable_numa_binding(self) -> None:
         experiment = _experiment(
             megatron_path="/source/Megatron-LM", data_path="/data/prefix"

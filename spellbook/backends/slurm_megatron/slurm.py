@@ -114,6 +114,7 @@ class SlurmBackend:
     theoretical_memory: bool = False       # use Megatron's tools/report_theoretical_memory.py
     launch_mode: str = "torchrun"          # "torchrun" or "tasks"; tasks runs python directly per Slurm task
     numa_bind: bool = True                  # wrap task-mode Python with numactl local-rank binding
+    login_shell: bool = True                # use bash -lc instead of bash -c inside srun
     auto_requeue: bool = False             # submit next job before srun (sbatch --dependency=singleton $0)
     auto_requeue_stop_regex: str = r"\[after training is done\] datetime:"
     node_health_gate: bool = False          # test torch/NCCL before batch experiment launches
@@ -438,6 +439,7 @@ class SlurmBackend:
             "srun_job_id": self.srun_job_id,
             "launch_mode": self.launch_mode,
             "numa_bind": self.numa_bind,
+            "login_shell": self.login_shell,
             "srun_extra_args": self.srun_extra_args,
             "srun_extra_arg_env_vars": srun_extra_arg_env_vars,
             "pythonpath_env_vars": self.pythonpath_env_vars,
