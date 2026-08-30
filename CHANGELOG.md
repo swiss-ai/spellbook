@@ -23,6 +23,9 @@ Notable changes to Spellbook are documented here.
 
 ### Changed
 
+- Slurm Megatron task launches now use a shared IOPStor readiness barrier after Megatron copying and package installation, so every rank waits for all ranks before starting Python; the default timeout is 10 minutes.
+
+
 - Megatron evaluation prefetch now builds lm-eval task-derived dataset caches on
   rank zero before releasing distributed ranks, including custom task paths.
 
