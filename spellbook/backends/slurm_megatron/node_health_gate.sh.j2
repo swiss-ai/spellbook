@@ -67,7 +67,10 @@ spellbook_health_check() {
 {%- endif %}
       --kill-on-bad-exit=1 \
       --wait=10 \
-      --export=ALL,MASTER_ADDR="${master}",MASTER_PORT="${port}",SPELLBOOK_HEALTH_TIMEOUT="${SPELLBOOK_HEALTH_TIMEOUT}",SPELLBOOK_HEALTH_JOB_DIR="${SPELLBOOK_HEALTH_JOB_DIR}",SPELLBOOK_HEALTH_NNODES="${nodes}" \
+      --export=MASTER_ADDR="${master}",MASTER_PORT="${port}",SPELLBOOK_HEALTH_TIMEOUT="${SPELLBOOK_HEALTH_TIMEOUT}",SPELLBOOK_HEALTH_JOB_DIR="${SPELLBOOK_HEALTH_JOB_DIR}",SPELLBOOK_HEALTH_NNODES="${nodes}",PYTHONNOUSERSITE=1 \
+{%- if container_edf is defined and container_edf %}
+      --container-env=MASTER_ADDR,MASTER_PORT,SPELLBOOK_HEALTH_TIMEOUT,SPELLBOOK_HEALTH_JOB_DIR,SPELLBOOK_HEALTH_NNODES,PYTHONNOUSERSITE \
+{%- endif %}
       --mpi=pmix \
 {%- if container_edf is defined and container_edf %}
       --environment="{{ container_edf }}" \

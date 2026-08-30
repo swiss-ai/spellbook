@@ -30,6 +30,7 @@ export WORLD_SIZE="$(scontrol show hostnames "$SLURM_JOB_NODELIST" | wc -l)"
 export SLURM_JOB_ID="${SLURM_JOB_ID}"
 export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
 export CUDA_CACHE_DISABLE=1
+export PYTHONNOUSERSITE=1
 
 {% for key, value in srun_extra_arg_env_vars.items() %}
 export {{ key }}="{{ value }}"
@@ -69,6 +70,9 @@ echo "[$(date)] Auto-requeued job ${AUTO_REQUEUE_JOB_ID}"
 # --- Launch ---
 srun \
   --export={{ srun_export_vars }} \
+{%- if container_edf is defined and container_edf %}
+  --container-env={{ srun_export_vars }} \
+{%- endif %}
   --mpi=pmix -l \
 {%- if container_edf is defined and container_edf %}
   --environment="{{ container_edf }}" \

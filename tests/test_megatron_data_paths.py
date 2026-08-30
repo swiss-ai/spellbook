@@ -76,6 +76,33 @@ class DataPathTest(unittest.TestCase):
         self.assertIn("set -exo pipefail", script)
         self.assertIn("2>&1 | tee", script)
 
+    def test_container_launch_isolates_python_environment(self) -> None:
+        experiment = _experiment(
+            megatron_path="/source/Megatron-LM",
+            data_path="/data/prefix",
+            env_vars={"PYTHONPATH": "/explicit/pythonpath"},
+        )
+
+        backends = (
+            _container_backend(launch_mode="torchrun"),
+            _container_backend(launch_mode="tasks"),
+            _container_backend(srun_job_id="123"),
+        )
+        for backend in backends:
+            with self.subTest(template=backend._template_name()):
+                script = backend.render(experiment)
+                self.assertIn("export PYTHONNOUSERSITE=1", script)
+                self.assertIn("--container-env=", script)
+                self.assertIn("PYTHONNOUSERSITE", script)
+                self.assertIn('export PYTHONPATH="/explicit/pythonpath"', script)
+                subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+        script = _container_backend().render(
+            _experiment(megatron_path="/source/Megatron-LM", data_path="/data/prefix")
+        )
+        export_line = next(line for line in script.splitlines() if "--export=" in line)
+        self.assertNotIn("PYTHONPATH", export_line)
+
     def test_node_health_gate_is_self_contained_and_batch_only(self) -> None:
         experiment = _experiment(
             megatron_path="/source/Megatron-LM", data_path="/data/prefix"
@@ -90,6 +117,8 @@ class DataPathTest(unittest.TestCase):
                 self.assertIn("torch.distributed", script)
                 self.assertIn("--kill-on-bad-exit=1", script)
                 self.assertNotIn("--gpus-per-task=1", script)
+                self.assertNotIn("--export=ALL", script)
+                self.assertIn("--container-env=MASTER_ADDR", script)
                 self.assertIn(
                     'SPELLBOOK_HEALTH_JOB_DIR="${SPELLBOOK_HEALTH_JOB_DIR}"', script
                 )
