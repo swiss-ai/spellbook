@@ -27,7 +27,10 @@ class CheckpointMergeTest(unittest.TestCase):
         script = render(_config(nodes=2, workers_per_node=3))
 
         self.assertIn("#SBATCH --ntasks-per-node=3", script)
-        self.assertIn("--ntasks=6", script)
+        launch = script[script.index("srun ") : script.index("-u bash -lc")]
+        self.assertNotIn("--nodes=", launch)
+        self.assertNotIn("--ntasks=", launch)
+        self.assertNotIn("--ntasks-per-node=", launch)
         self.assertIn('"${MEGATRON_PATH}/tools/checkpoint/merge.py"', script)
         self.assertIn('PYTHONPATH="${MEGATRON_PATH}:${PYTHONPATH:-}"', script)
         self.assertIn(

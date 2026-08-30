@@ -29,7 +29,10 @@ class DynamicServerTest(unittest.TestCase):
         script = render(_config())
 
         self.assertIn("#SBATCH --ntasks-per-node=4", script)
-        self.assertIn("--ntasks=4", script)
+        launch = script[script.index("srun ") : script.index("-u bash -lc")]
+        self.assertNotIn("--nodes=", launch)
+        self.assertNotIn("--ntasks=", launch)
+        self.assertNotIn("--ntasks-per-node=", launch)
         self.assertIn('export RANK="${SLURM_PROCID}"', script)
         self.assertIn('export LOCAL_RANK="${SLURM_LOCALID}"', script)
         self.assertNotIn("torchrun", script)
@@ -87,8 +90,10 @@ class DynamicServerTest(unittest.TestCase):
 
         self.assertIn("#SBATCH --nodes=2", script)
         self.assertIn("#SBATCH --ntasks-per-node=4", script)
-        self.assertIn("--nodes=2", script)
-        self.assertIn("--ntasks=8", script)
+        launch = script[script.index("srun ") : script.index("-u bash -lc")]
+        self.assertNotIn("--nodes=", launch)
+        self.assertNotIn("--ntasks=", launch)
+        self.assertNotIn("--ntasks-per-node=", launch)
         self.assertIn('${SLURM_NTASKS:-8}', script)
         self.assertIn('SERVER_HOSTS="$(hostname -I)"', script)
         self.assertIn('"--host"', script)

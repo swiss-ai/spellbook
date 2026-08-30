@@ -36,6 +36,8 @@ class VLLMEvalTest(unittest.TestCase):
         self.assertIn("--batch_size auto", script)
         self.assertNotIn("torch.distributed.run", script)
         self.assertNotIn("run_vllm_eval.py", script)
+        launch = script[script.index("srun ") : script.index("-u bash -lc")]
+        self.assertNotIn("--ntasks=", launch)
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
 
     def test_renders_tensor_and_data_parallelism(self) -> None:

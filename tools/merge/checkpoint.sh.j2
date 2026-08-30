@@ -35,9 +35,6 @@ echo "Megatron commit: ${MEGATRON_GIT_COMMIT}"
 echo "Megatron url:    ${MEGATRON_GIT_URL}"
 
 srun \
-  --nodes={{ nodes }} \
-  --ntasks={{ total_workers }} \
-  --ntasks-per-node={{ workers_per_node }} \
   --cpus-per-task={{ cpus_per_task }} \
   --export=ALL,MEGATRON_PATH \
   --mpi=pmix \

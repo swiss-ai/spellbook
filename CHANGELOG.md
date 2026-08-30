@@ -36,6 +36,11 @@ Notable changes to Spellbook are documented here.
 
 ### Fixed
 
+- Batch-launched Megatron training, evaluation, inference, and checkpoint-merge
+  steps now inherit their task layout from the matching `#SBATCH` allocation
+  instead of redundantly overriding `--nodes`, `--ntasks`, or
+  `--ntasks-per-node` in `srun`. This avoids incorrect worker creation on Slurm
+  configurations where job-step task overrides conflict with the allocation.
 - Cache-hit warmups no longer enter distributed cache-save cleanup.
 - Megatron inference servers bind to each node's routable IP instead of assuming
   its hostname names a local network interface.

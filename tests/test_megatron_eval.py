@@ -45,6 +45,9 @@ class MegatronPathTest(unittest.TestCase):
         self.assertNotIn("cp -R --no-preserve=all", script)
         self.assertNotIn('MEGATRON_CONTAINER_PATH="/opt/megatron"', script)
         self.assertIn('export MEGATRON_PATH="${MEGATRON_SOURCE_PATH}"', script)
+        launch = script[script.index("srun ") : script.index("-u bash -lc")]
+        self.assertNotIn("--ntasks=", launch)
+        self.assertNotIn("--ntasks-per-node=", launch)
 
     def test_container_launch_copies_megatron_after_srun(self) -> None:
         cfg = _config("/path/to/Megatron-LM")
