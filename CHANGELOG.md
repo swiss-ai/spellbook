@@ -23,6 +23,9 @@ Notable changes to Spellbook are documented here.
 
 ### Changed
 
+- Megatron evaluation launches now use the shared IOPStor readiness barrier after container copy and package installation, with a ten-minute default timeout.
+
+
 - Slurm Megatron task launches now use a shared IOPStor readiness barrier after Megatron copying and package installation, so every rank waits for all ranks before starting Python; the default timeout is 10 minutes.
 
 
