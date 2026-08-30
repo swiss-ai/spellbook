@@ -19,20 +19,33 @@ import torch.distributed as dist
 rank = int(os.environ.get("RANK", os.environ["SLURM_PROCID"]))
 local_rank = int(os.environ.get("LOCAL_RANK", os.environ["SLURM_LOCALID"]))
 world_size = int(os.environ.get("WORLD_SIZE", os.environ["SLURM_NTASKS"]))
-torch.cuda.set_device(local_rank)
+device = torch.device("cuda", local_rank)
+
+
+def log(phase: str) -> None:
+    print(f"rank={rank} host={os.uname().nodename} local_rank={local_rank} phase={phase}", flush=True)
+
+
+log("start")
+torch.cuda.set_device(device)
 dist.init_process_group(
     "nccl",
     rank=rank,
     world_size=world_size,
     timeout=timedelta(seconds=int(os.environ["SPELLBOOK_HEALTH_TIMEOUT"])),
+    device_id=device,
 )
-# Exercise both a reduction and all-to-all, not only rendezvous.
-x = torch.ones(world_size * 65536, device="cuda")
+log("initialized")
+dist.barrier(device_ids=[local_rank])
+log("barrier")
+x = torch.ones(world_size * 65536, device=device)
 for _ in range(3):
     dist.all_reduce(x)
+log("all_reduce")
 out = torch.empty_like(x)
 dist.all_to_all_single(out, x)
 torch.cuda.synchronize()
+log("all_to_all")
 dist.destroy_process_group()
 PYEOF
 
