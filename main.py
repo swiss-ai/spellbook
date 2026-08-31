@@ -6,18 +6,21 @@ Usage:
     python main.py submit  <experiments/foo/experiment.py>  [--only NAME] [--output-dir DIR]
     python main.py list    <experiments/foo/experiment.py>  [--all | --columns COL,COL,...]
     python main.py csv     <experiments/foo/experiment.py>  [--changed] [--output PATH]
+    python main.py report  <definition.py> [--variable NAME] [--output PATH]
 """
 
 from __future__ import annotations
 
 import argparse
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
 import pandas as pd
 from dotenv import load_dotenv
 
+from spellbook.reporting import load_report
 
 # Fields shown by default in the list table (in addition to changed fields).
 # Edit this list to suit the most commonly inspected dimensions.
@@ -129,7 +132,7 @@ def cmd_list(args: argparse.Namespace) -> None:
     print("-" * len(header))
     for exp in exps:
         d = exp.to_dict()
-        row = "".join(f"{str(d.get(c, '')):<{col_w[c]}}" for c in cols)
+        row = "".join(f"{d.get(c, '')!s:<{col_w[c]}}" for c in cols)
         print(row)
     print()
 
@@ -146,8 +149,8 @@ def cmd_csv(args: argparse.Namespace) -> None:
     _CSV_EXCLUDE = {"training_args", "wandb_project", "wandb_exp_name", "tensorboard_dir", "save", "load"}
 
     def _with_size(exp, row: dict) -> dict:
-        if hasattr(exp, "_param_counts"):
-            p = exp._param_counts()
+        if hasattr(exp, "parameter_counts"):
+            p = exp.parameter_counts()
             row["total_params_B"] = p["total_B"]
             row["active_params_B"] = p["active_B"]
             row["activation_ratio"] = p["ratio"]
@@ -171,11 +174,24 @@ def cmd_csv(args: argparse.Namespace) -> None:
     name_to_idx = {exp.name: i for i, exp in enumerate(exps)}
     for i, (exp, row) in enumerate(zip(exps, rows)):
         parent_name = getattr(exp, "_parent_name", None)
-        row["parent_idx"] = name_to_idx[parent_name] if parent_name in name_to_idx else None
+        row["parent_idx"] = name_to_idx.get(parent_name)
 
     out_path = Path(args.output) if args.output else default_path
     pd.DataFrame(rows).to_csv(out_path, index=False)
     print(f"Wrote {len(rows)} rows to {out_path}")
+
+
+def cmd_report(args: argparse.Namespace) -> None:
+    """Validate a declarative report and emit its resolved JSON plan."""
+    report = load_report(args.definition, variable=args.variable)
+    payload = json.dumps(report.to_dict(), indent=2, sort_keys=True)
+    if args.output:
+        output = Path(args.output)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(payload + "\n")
+        print(f"Wrote report plan to {output}")
+    else:
+        print(payload)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -209,6 +225,14 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_csv.add_argument("--output", default=None, metavar="PATH", help="Override output file path")
 
+    p_report = sub.add_parser("report", help="Validate and print a report plan")
+    p_report.add_argument("definition", help="Experiment or evaluation Python file")
+    p_report.add_argument(
+        "--variable", default=None, metavar="NAME",
+        help="Report variable to load when the module defines more than one",
+    )
+    p_report.add_argument("--output", default=None, metavar="PATH", help="Write JSON plan")
+
     return parser
 
 
@@ -216,7 +240,13 @@ def main() -> None:
     # Load .env from the current working tree if present; do not override exported env.
     load_dotenv(override=False)
     args = build_parser().parse_args()
-    {"render": cmd_render, "submit": cmd_submit, "list": cmd_list, "csv": cmd_csv}[args.command](args)
+    {
+        "render": cmd_render,
+        "submit": cmd_submit,
+        "list": cmd_list,
+        "csv": cmd_csv,
+        "report": cmd_report,
+    }[args.command](args)
 
 
 if __name__ == "__main__":

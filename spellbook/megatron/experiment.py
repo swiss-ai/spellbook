@@ -327,7 +327,7 @@ class MegatronExperiment(Experiment):
         return self.total_gpus // 4  # assumes 4 GPUs/node; override if needed
 
     # ------------------------------------------------------------------
-    # Parameter count (Qwen3 MoE architecture, QK LayerNorm assumed when qk_layernorm=True)
+    # Parameter count (standard attention, MLA, or KDA)
     # ------------------------------------------------------------------
 
     def _param_counts(self) -> dict[str, float]:
@@ -336,7 +336,59 @@ class MegatronExperiment(Experiment):
         embedding_params = self.vocab_size * h
         output_params = self.vocab_size * h if self.untie_embeddings_and_output_weights else 0
 
-        if self.multi_latent_attention:
+        qk_ln_params = 2 * h if self.qk_layernorm else 0
+        layernorm_params = 2 * h
+
+        if getattr(self, "experimental_attention_variant", "") == "kda":
+            kda: Any = self
+            head_dim = h // self.num_attention_heads
+            query_groups = self.num_query_groups or self.num_attention_heads
+            standard_attention = (
+                h * h + h * (2 * query_groups * head_dim) + h * h + 2 * head_dim
+            )
+            standard_base = standard_attention + 4 * h
+
+            key_head_dim = kda.linear_key_head_dim
+            value_head_dim = kda.linear_value_head_dim
+            num_key_heads = kda.linear_num_key_heads
+            num_value_heads = kda.linear_num_value_heads
+            qk_dim = key_head_dim * num_key_heads
+            value_dim = value_head_dim * num_value_heads
+            alpha_dim = key_head_dim * num_value_heads
+            low_rank_dim = value_head_dim
+            full_rank_gate = getattr(self, "linear_attention_full_rank_output_gate", False)
+            output_gate_input = value_dim if full_rank_gate else low_rank_dim
+            input_projection = (
+                2 * qk_dim
+                + value_dim
+                + low_rank_dim
+                + output_gate_input
+                + num_value_heads
+            )
+            kda_base = (
+                h * input_projection
+                + low_rank_dim * alpha_dim
+                + (0 if full_rank_gate else low_rank_dim * value_dim + value_dim)
+                + kda.linear_conv_kernel_dim * (2 * qk_dim + value_dim)
+                + h * value_dim
+                + alpha_dim
+                + num_value_heads
+                + value_head_dim
+                + 4 * h
+            )
+            pattern = kda.linear_attention_freq
+            if isinstance(pattern, int):
+                pattern = [
+                    0 if (index + 1) % pattern == 0 else 1
+                    for index in range(self.num_layers)
+                ]
+            if not isinstance(pattern, list) or len(pattern) != self.num_layers:
+                raise ValueError(
+                    "linear_attention_freq must resolve to one entry per layer "
+                    "before parameter counting"
+                )
+            layer_bases = [kda_base if is_kda else standard_base for is_kda in pattern]
+        elif self.multi_latent_attention:
             # MLA projections: W_DQ (h->q_lora_rank), W_UQ (q_lora_rank->nheads*qk_head_dim),
             # W_DKV (h->kv_lora_rank), W_UK (kv_lora_rank->nheads*qk_head_dim),
             # W_UV (kv_lora_rank->nheads*v_head_dim), W_O (nheads*v_head_dim->h),
@@ -347,7 +399,7 @@ class MegatronExperiment(Experiment):
             qk_dim = self.qk_head_dim or 0
             qk_rope = self.qk_pos_emb_head_dim or 0
             v_dim = self.v_head_dim or 0
-            attn_params = (
+            attention_params = (
                 h * q_lora                    # W_DQ
                 + q_lora * nh * qk_dim        # W_UQ (nope part)
                 + q_lora * nh * qk_rope       # W_QR (rope part)
@@ -356,13 +408,14 @@ class MegatronExperiment(Experiment):
                 + kv_lora * nh * v_dim        # W_UV
                 + nh * v_dim * h              # W_O
             )
+            layer_base = attention_params + qk_ln_params + layernorm_params
+            layer_bases = [layer_base] * self.num_layers
         else:
             head_dim = self.kv_channels or (h // self.num_attention_heads)
             kv_h = (self.num_query_groups or self.num_attention_heads) * head_dim
-            attn_params = h * h + h * kv_h + h * kv_h + h * h  # q+k+v+o
-
-        qk_ln_params = 2 * h if self.qk_layernorm else 0
-        layernorm_params = 2 * h
+            attention_params = h * h + h * kv_h + h * kv_h + h * h
+            layer_base = attention_params + qk_ln_params + layernorm_params
+            layer_bases = [layer_base] * self.num_layers
 
         ffn_multiplier = 3 if self.swiglu else 2  # SwiGLU: gate+up+down; standard: up+down
         dense_ffn_params = ffn_multiplier * h * self.ffn_hidden_size
@@ -371,18 +424,27 @@ class MegatronExperiment(Experiment):
         moe_ffn = self.moe_ffn_hidden_size or 0
         shared_intermediate = self.moe_shared_expert_intermediate_size or 0
 
+        latent_size = getattr(self, "moe_latent_size", None)
+        expert_input = latent_size or h
         router_params = h * num_experts
-        expert_params = ffn_multiplier * h * moe_ffn
+        expert_params = ffn_multiplier * expert_input * moe_ffn
         shared_expert_params = ffn_multiplier * h * shared_intermediate
+        latent_projection_params = 2 * h * latent_size if latent_size else 0
 
         total_params = embedding_params + output_params
         active_params = embedding_params + output_params
 
-        for is_moe in self.moe_layer_freq:
-            base = attn_params + qk_ln_params + layernorm_params
+        for layer_index, is_moe in enumerate(self.moe_layer_freq):
+            base = layer_bases[layer_index]
             if is_moe:
-                layer_total = base + router_params + num_experts * expert_params + shared_expert_params
-                layer_active = base + router_params + self.moe_router_topk * expert_params + shared_expert_params
+                layer_total = (
+                    base + router_params + num_experts * expert_params
+                    + shared_expert_params + latent_projection_params
+                )
+                layer_active = (
+                    base + router_params + self.moe_router_topk * expert_params
+                    + shared_expert_params + latent_projection_params
+                )
             else:
                 layer_total = base + dense_ffn_params
                 layer_active = layer_total
@@ -394,6 +456,14 @@ class MegatronExperiment(Experiment):
             "active_B": round(active_params / 1e9, 3),
             "ratio": round(active_params / total_params, 4) if total_params else 0.0,
         }
+
+    def parameter_counts(self) -> dict[str, float]:
+        """Return this base schema's parameter estimate for reporting and CSV export.
+
+        Architecture-specific experiment subclasses should override this method,
+        or reports can pass an explicit ``parameter_counter`` callable.
+        """
+        return self._param_counts()
 
     # ------------------------------------------------------------------
     # to_dict: produce the context dict the Jinja2 template receives

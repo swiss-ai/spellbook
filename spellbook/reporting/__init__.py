@@ -1,0 +1,35 @@
+from spellbook.reporting.loader import load_report
+from spellbook.reporting.specs import (
+    Between,
+    CombinedReport,
+    EndpointScalingLaw,
+    EvalMacro,
+    EvalReport,
+    EvalTrajectories,
+    LossAlignment,
+    MetricCurves,
+    ModelMetadata,
+    Models,
+    Plot,
+    Report,
+    TaskHeatmap,
+    WandbGroup,
+)
+
+__all__ = [
+    "Between",
+    "CombinedReport",
+    "EndpointScalingLaw",
+    "EvalMacro",
+    "EvalReport",
+    "EvalTrajectories",
+    "LossAlignment",
+    "MetricCurves",
+    "ModelMetadata",
+    "Models",
+    "Plot",
+    "Report",
+    "TaskHeatmap",
+    "WandbGroup",
+    "load_report",
+]

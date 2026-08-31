@@ -33,6 +33,7 @@ uv run ty check
 python main.py list   experiments/big_moe_speed_ablations/experiment.py
 python main.py render experiments/big_moe_speed_ablations/experiment.py
 python main.py submit experiments/big_moe_speed_ablations/experiment.py
+python main.py report experiments/big_moe_speed_ablations/experiment.py
 ```
 
 If you prefer explicit uv execution:
@@ -66,6 +67,71 @@ on (empty for root/base experiments).
 
 The following fields are always excluded from CSV output: `wandb_project`, `wandb_exp_name`,
 `tensorboard_dir`, `save`, `load`.
+
+## Declarative reports
+
+Spellbook report definitions describe data sources, model selection, parameter
+metadata, and requested plots without downloading histories or rendering at import
+time. A training report normally lives beside its experiment `sweep`:
+
+```python
+from spellbook.reporting import (
+    EndpointScalingLaw,
+    LossAlignment,
+    Models,
+    Report,
+    WandbGroup,
+)
+
+report = Report(
+    name="kda-scaling-ladder-training",
+    source=WandbGroup("apertus/scaling-ladder-kda-v2"),
+    select=Models(
+        names=["1.5b", "5b", "22b"],
+        exclude=["router-*"],
+    ),
+    plots=[
+        LossAlignment(axes=["tokens", "flops", "lr_cooldown"]),
+        EndpointScalingLaw(x=["total_params", "active_params", "flops"]),
+    ],
+)
+```
+
+When the module also defines `sweep`, the report loader selects those experiments
+before any future WandB history fetch and records their total/active parameter
+metadata. Evaluation semantics remain in the evaluation file:
+
+```python
+from spellbook.reporting import EvalMacro, EvalReport, TaskHeatmap, WandbGroup
+
+eval_report = EvalReport(
+    name="kda-scaling-ladder-evals",
+    source=WandbGroup(
+        "apertus/apertus2-scaling-ladder-evals",
+        group="apertus2-kda-scaling-ladder-evals",
+    ),
+    plots=[
+        EvalMacro(task_groups=EVAL_GROUPS),
+        TaskHeatmap(task_groups=EVAL_GROUPS),
+    ],
+)
+```
+
+Generate and validate the resolved JSON plan with:
+
+```bash
+uv run python main.py report experiments/path/experiment.py
+uv run python main.py report evals/path/evaluate.py --variable eval_report --output report.json
+```
+
+`Models` supports exact `names`, config-field `where` predicates (including
+`Between`), and glob-style `exclude` patterns. `CombinedReport` applies one shared
+selector to training and evaluation reports and errors when their model IDs differ.
+
+`MegatronExperiment.parameter_counts()` supports standard attention, MLA, and KDA,
+including mixed KDA layer patterns and latent-MoE routed inputs/projections. A
+specialized experiment can override that method, or a report can pass an explicit
+`parameter_counter` callable; its qualified name is preserved in the JSON plan.
 
 ## `.env` support
 
