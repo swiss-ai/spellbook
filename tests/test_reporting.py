@@ -7,11 +7,7 @@ from pathlib import Path
 
 from spellbook.megatron import MegatronExperiment
 from spellbook.reporting import (
-    Between,
-    CombinedReport,
-    EvalReport,
     LossAlignment,
-    ModelMetadata,
     Models,
     Report,
     WandbGroup,
@@ -37,17 +33,19 @@ def _experiment(name: str, hidden_size: int = 768) -> MegatronExperiment:
 
 
 class ReportingTest(unittest.TestCase):
-    def test_model_selection_supports_names_ranges_and_exclusion(self) -> None:
+    def test_model_selection_supports_predicates_and_exclusion(self) -> None:
         models = [
             {"name": "1.5b", "total_params": 1.5e9, "mode": "flat"},
             {"name": "5b", "total_params": 5e9, "mode": "row_fan_in"},
             {"name": "router-5b", "total_params": 5e9, "mode": "row_fan_in"},
         ]
         selector = Models(
-            where={"total_params": Between(1e9, 6e9)},
+            where={"total_params": lambda value: 1e9 <= value <= 6e9},
             exclude=["router-*"],
         )
-        self.assertEqual([model["name"] for model in selector.select(models)], ["1.5b", "5b"])
+        self.assertEqual(
+            [model["name"] for model in selector.select(models)], ["1.5b", "5b"]
+        )
 
     def test_missing_explicit_model_is_an_error(self) -> None:
         with self.assertRaisesRegex(ValueError, "22b"):
@@ -66,36 +64,20 @@ class ReportingTest(unittest.TestCase):
         self.assertGreater(payload["models"][0]["total_params"], 0)
         self.assertIn("parameter_counts", payload["models"][0]["parameter_source"])
 
-    def test_explicit_parameter_counter_is_recorded(self) -> None:
-        def counter(_experiment):
-            return {"total_B": 2.0, "active_B": 0.5, "ratio": 0.25}
-
+    def test_eval_report_can_select_names_without_experiment_metadata(self) -> None:
         report = Report(
-            name="custom",
-            source=WandbGroup("entity/project"),
-            plots=[],
-            parameter_counter=counter,
-        ).with_experiments([_experiment("model")])
-        payload = report.to_dict()
-        self.assertEqual(payload["models"][0]["total_params"], 2e9)
-        self.assertTrue(payload["parameter_counter"].endswith("counter"))
-
-    def test_combined_report_rejects_mismatched_models(self) -> None:
-        training = Report(
-            "training", WandbGroup("entity/train"), [],
-            models=[ModelMetadata("1.5b")],
+            "evals",
+            WandbGroup("entity/evals"),
+            [],
+            select=Models(names=["1.5b", "3b"]),
         )
-        evaluations = EvalReport(
-            "evals", WandbGroup("entity/evals"), [],
-            models=[ModelMetadata("3b")],
-        )
-        with self.assertRaisesRegex(ValueError, "model mismatch"):
-            CombinedReport("combined", training, evaluations).to_dict()
+        self.assertEqual(report.to_dict()["models"], [])
 
     def test_loader_attaches_sweep_experiments(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             definition = Path(directory) / "definition.py"
-            definition.write_text(textwrap.dedent("""
+            definition.write_text(
+                textwrap.dedent("""
                 from spellbook.core import Sweep
                 from spellbook.megatron import MegatronExperiment
                 from spellbook.reporting import LossAlignment, Models, Report, WandbGroup
@@ -119,7 +101,8 @@ class ReportingTest(unittest.TestCase):
                     [LossAlignment()],
                     select=Models(names=["large"]),
                 )
-            """))
+            """)
+            )
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 report = load_report(definition)
@@ -144,6 +127,12 @@ class KDAExperiment(MegatronExperiment):
 
 
 class KDAParameterCountTest(unittest.TestCase):
+    def test_incomplete_kda_configuration_has_clear_error(self) -> None:
+        experiment = _experiment("incomplete-kda")
+        vars(experiment)["experimental_attention_variant"] = "kda"
+        with self.assertRaisesRegex(ValueError, "linear_key_head_dim"):
+            experiment.parameter_counts()
+
     def test_kda_and_latent_experts_are_counted(self) -> None:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
@@ -163,4 +152,6 @@ class KDAParameterCountTest(unittest.TestCase):
             standard = dataclasses.replace(kda, experimental_attention_variant="")
 
         self.assertNotEqual(kda.parameter_counts(), standard.parameter_counts())
-        self.assertGreater(kda.parameter_counts()["total_B"], kda.parameter_counts()["active_B"])
+        self.assertGreater(
+            kda.parameter_counts()["total_B"], kda.parameter_counts()["active_B"]
+        )

@@ -340,7 +340,18 @@ class MegatronExperiment(Experiment):
         layernorm_params = 2 * h
 
         if getattr(self, "experimental_attention_variant", "") == "kda":
-            kda: Any = self
+            kda = vars(self)
+            required = (
+                "linear_key_head_dim",
+                "linear_value_head_dim",
+                "linear_num_key_heads",
+                "linear_num_value_heads",
+                "linear_conv_kernel_dim",
+                "linear_attention_freq",
+            )
+            missing = [name for name in required if name not in kda]
+            if missing:
+                raise ValueError(f"KDA parameter counting requires: {', '.join(missing)}")
             head_dim = h // self.num_attention_heads
             query_groups = self.num_query_groups or self.num_attention_heads
             standard_attention = (
@@ -348,10 +359,10 @@ class MegatronExperiment(Experiment):
             )
             standard_base = standard_attention + 4 * h
 
-            key_head_dim = kda.linear_key_head_dim
-            value_head_dim = kda.linear_value_head_dim
-            num_key_heads = kda.linear_num_key_heads
-            num_value_heads = kda.linear_num_value_heads
+            key_head_dim = kda["linear_key_head_dim"]
+            value_head_dim = kda["linear_value_head_dim"]
+            num_key_heads = kda["linear_num_key_heads"]
+            num_value_heads = kda["linear_num_value_heads"]
             qk_dim = key_head_dim * num_key_heads
             value_dim = value_head_dim * num_value_heads
             alpha_dim = key_head_dim * num_value_heads
@@ -369,14 +380,14 @@ class MegatronExperiment(Experiment):
                 h * input_projection
                 + low_rank_dim * alpha_dim
                 + (0 if full_rank_gate else low_rank_dim * value_dim + value_dim)
-                + kda.linear_conv_kernel_dim * (2 * qk_dim + value_dim)
+                + kda["linear_conv_kernel_dim"] * (2 * qk_dim + value_dim)
                 + h * value_dim
                 + alpha_dim
                 + num_value_heads
                 + value_head_dim
                 + 4 * h
             )
-            pattern = kda.linear_attention_freq
+            pattern = kda["linear_attention_freq"]
             if isinstance(pattern, int):
                 pattern = [
                     0 if (index + 1) % pattern == 0 else 1

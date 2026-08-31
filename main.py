@@ -6,7 +6,7 @@ Usage:
     python main.py submit  <experiments/foo/experiment.py>  [--only NAME] [--output-dir DIR]
     python main.py list    <experiments/foo/experiment.py>  [--all | --columns COL,COL,...]
     python main.py csv     <experiments/foo/experiment.py>  [--changed] [--output PATH]
-    python main.py report  <definition.py> [--variable NAME] [--output PATH]
+    python main.py report  <definition.py> [--variable NAME] [--output-dir DIR]
 """
 
 from __future__ import annotations
@@ -25,9 +25,16 @@ from spellbook.reporting import load_report
 # Fields shown by default in the list table (in addition to changed fields).
 # Edit this list to suit the most commonly inspected dimensions.
 _DEFAULT_COLUMNS: list[str] = [
-    "tp", "pp", "ep", "etp", "cp",
-    "mbs", "gbs", "num_gpus",
-    "bf16", "fp8_format",
+    "tp",
+    "pp",
+    "ep",
+    "etp",
+    "cp",
+    "mbs",
+    "gbs",
+    "num_gpus",
+    "bf16",
+    "fp8_format",
     "moe_token_dispatcher_type",
     "overlap_moe_expert_parallel_comm",
 ]
@@ -62,7 +69,10 @@ def _load_sweep(path: str, only: str | None = None):
         matches = [e for e in sweep.experiments if e.name == only]
         if not matches:
             names = [e.name for e in sweep.experiments]
-            print(f"Error: no experiment named '{only}'. Available: {', '.join(names)}", file=sys.stderr)
+            print(
+                f"Error: no experiment named '{only}'. Available: {', '.join(names)}",
+                file=sys.stderr,
+            )
             sys.exit(1)
         sweep.experiments = matches
 
@@ -94,7 +104,9 @@ def cmd_list(args: argparse.Namespace) -> None:
 
     if args.all:
         # Every field in the dataclass, alphabetically (excluding name which is first)
-        extra_cols = sorted(k for k in exps[0].to_dict() if k != "name" and k != "training_args")
+        extra_cols = sorted(
+            k for k in exps[0].to_dict() if k != "name" and k != "training_args"
+        )
     elif args.columns:
         extra_cols = [c.strip() for c in args.columns.split(",")]
     else:
@@ -117,7 +129,9 @@ def cmd_list(args: argparse.Namespace) -> None:
     col_w: dict[str, int] = {}
     for c in cols:
         vals = [str(e.to_dict().get(c, "")) for e in exps]
-        col_w[c] = max(len(c) + (2 if c in changed_set else 0), max(len(v) for v in vals)) + 2
+        col_w[c] = (
+            max(len(c) + (2 if c in changed_set else 0), max(len(v) for v in vals)) + 2
+        )
 
     # Header: changed columns get a * marker
     header_parts = []
@@ -146,7 +160,14 @@ def cmd_csv(args: argparse.Namespace) -> None:
 
     exp_dir = Path(args.experiment).resolve().parent
 
-    _CSV_EXCLUDE = {"training_args", "wandb_project", "wandb_exp_name", "tensorboard_dir", "save", "load"}
+    _CSV_EXCLUDE = {
+        "training_args",
+        "wandb_project",
+        "wandb_exp_name",
+        "tensorboard_dir",
+        "save",
+        "load",
+    }
 
     def _with_size(exp, row: dict) -> dict:
         if hasattr(exp, "parameter_counts"):
@@ -159,7 +180,9 @@ def cmd_csv(args: argparse.Namespace) -> None:
     if args.changed:
         changed = set(sweep.changed_fields()) - _CSV_EXCLUDE
         cols = ["name"] + sorted(changed)
-        rows = [_with_size(exp, {c: exp.to_dict().get(c) for c in cols}) for exp in exps]
+        rows = [
+            _with_size(exp, {c: exp.to_dict().get(c) for c in cols}) for exp in exps
+        ]
         class_name = type(exps[0]).__name__
         default_path = exp_dir / f"{class_name}.changed.csv"
     else:
@@ -182,16 +205,15 @@ def cmd_csv(args: argparse.Namespace) -> None:
 
 
 def cmd_report(args: argparse.Namespace) -> None:
-    """Validate a declarative report and emit its resolved JSON plan."""
+    """Render a declarative report or print its resolved plan."""
     report = load_report(args.definition, variable=args.variable)
-    payload = json.dumps(report.to_dict(), indent=2, sort_keys=True)
-    if args.output:
-        output = Path(args.output)
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(payload + "\n")
-        print(f"Wrote report plan to {output}")
-    else:
-        print(payload)
+    if args.plan:
+        print(json.dumps(report.to_dict(), indent=2, sort_keys=True))
+        return
+    from spellbook.reporting.render import render_report
+
+    output = render_report(report, args.output_dir, refresh=args.refresh)
+    print(f"Rendered report to {output}")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -200,12 +222,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_render = sub.add_parser("render", help="Render sbatch scripts without submitting")
     p_render.add_argument("experiment", help="Path to experiment .py file")
-    p_render.add_argument("--only", default=None, metavar="NAME", help="Render only this experiment name")
+    p_render.add_argument(
+        "--only", default=None, metavar="NAME", help="Render only this experiment name"
+    )
     p_render.add_argument("--output-dir", default="sbatch_scripts")
 
     p_submit = sub.add_parser("submit", help="Render and submit all experiments")
     p_submit.add_argument("experiment", help="Path to experiment .py file")
-    p_submit.add_argument("--only", default=None, metavar="NAME", help="Submit only this experiment name")
+    p_submit.add_argument(
+        "--only", default=None, metavar="NAME", help="Submit only this experiment name"
+    )
     p_submit.add_argument("--output-dir", default="sbatch_scripts")
 
     p_list = sub.add_parser("list", help="Print a summary table of all experiments")
@@ -213,25 +239,42 @@ def build_parser() -> argparse.ArgumentParser:
     col_group = p_list.add_mutually_exclusive_group()
     col_group.add_argument("--all", action="store_true", help="Show all fields")
     col_group.add_argument(
-        "--columns", default=None, metavar="COL,COL,...",
+        "--columns",
+        default=None,
+        metavar="COL,COL,...",
         help="Comma-separated list of fields to show (always includes changed fields)",
     )
 
     p_csv = sub.add_parser("csv", help="Export experiments to a CSV file")
     p_csv.add_argument("experiment", help="Path to experiment .py file")
     p_csv.add_argument(
-        "--changed", action="store_true",
+        "--changed",
+        action="store_true",
         help="Only include columns that differ across experiments; output named <ClassName>.changed.csv",
     )
-    p_csv.add_argument("--output", default=None, metavar="PATH", help="Override output file path")
+    p_csv.add_argument(
+        "--output", default=None, metavar="PATH", help="Override output file path"
+    )
 
-    p_report = sub.add_parser("report", help="Validate and print a report plan")
+    p_report = sub.add_parser(
+        "report", help="Fetch WandB histories and render a report"
+    )
     p_report.add_argument("definition", help="Experiment or evaluation Python file")
     p_report.add_argument(
-        "--variable", default=None, metavar="NAME",
+        "--variable",
+        default=None,
+        metavar="NAME",
         help="Report variable to load when the module defines more than one",
     )
-    p_report.add_argument("--output", default=None, metavar="PATH", help="Write JSON plan")
+    p_report.add_argument("--output-dir", default="reports", metavar="DIR")
+    p_report.add_argument(
+        "--refresh", action="store_true", help="Refresh cached WandB histories"
+    )
+    p_report.add_argument(
+        "--plan",
+        action="store_true",
+        help="Print the resolved JSON plan without fetching",
+    )
 
     return parser
 

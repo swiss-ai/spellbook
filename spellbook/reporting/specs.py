@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import dataclasses
 import fnmatch
-from collections.abc import Callable, Mapping, Sequence
-from typing import Any, ClassVar
+from collections.abc import Mapping, Sequence
+from typing import Any
+
+AxisRange = tuple[float | None, float | None]
 
 
 @dataclasses.dataclass(frozen=True)
@@ -19,43 +21,14 @@ class WandbGroup:
 
     project: str
     group: str | None = None
+    runs: Sequence[str] = ()
+    run_namespaces: Mapping[str, Sequence[str]] = dataclasses.field(
+        default_factory=dict
+    )
 
     def __post_init__(self) -> None:
         if self.project.count("/") != 1:
             raise ValueError("WandbGroup.project must be '<entity>/<project>'")
-
-    @property
-    def entity(self) -> str:
-        return self.project.split("/", 1)[0]
-
-    @property
-    def project_name(self) -> str:
-        return self.project.split("/", 1)[1]
-
-
-@dataclasses.dataclass(frozen=True)
-class Between:
-    """Inclusive numeric range used in model-selection predicates."""
-
-    minimum: float
-    maximum: float
-
-    def __post_init__(self) -> None:
-        if self.minimum > self.maximum:
-            raise ValueError("Between.minimum cannot exceed maximum")
-
-    def matches(self, value: Any) -> bool:
-        return isinstance(value, int | float) and self.minimum <= value <= self.maximum
-
-
-Predicate = Between | Callable[[Any], bool] | Any
-ParameterCounter = Callable[[Any], Mapping[str, float]]
-
-
-def _callable_name(value: Callable[..., Any]) -> str:
-    module = getattr(value, "__module__", type(value).__module__)
-    name = getattr(value, "__qualname__", type(value).__qualname__)
-    return f"{module}.{name}"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -67,7 +40,7 @@ class Models:
     """
 
     names: Sequence[str] = ()
-    where: Mapping[str, Predicate] = dataclasses.field(default_factory=dict)
+    where: Mapping[str, Any] = dataclasses.field(default_factory=dict)
     exclude: Sequence[str] = ()
 
     def matches(self, model: Any) -> bool:
@@ -77,7 +50,10 @@ class Models:
             return False
         if any(fnmatch.fnmatchcase(name, pattern) for pattern in self.exclude):
             return False
-        return all(_matches_predicate(values.get(field), expected) for field, expected in self.where.items())
+        return all(
+            _matches_predicate(values.get(field), expected)
+            for field, expected in self.where.items()
+        )
 
     def select(self, models: Sequence[Any]) -> list[Any]:
         selected = [model for model in models if self.matches(model)]
@@ -85,7 +61,9 @@ class Models:
             found = {str(_model_values(model).get("name", "")) for model in selected}
             missing = [name for name in self.names if name not in found]
             if missing:
-                raise ValueError(f"Selected model IDs were not found: {', '.join(missing)}")
+                raise ValueError(
+                    f"Selected model IDs were not found: {', '.join(missing)}"
+                )
         return selected
 
 
@@ -103,13 +81,14 @@ def _model_values(model: Any) -> Mapping[str, Any]:
     if hasattr(model, "to_dict"):
         return model.to_dict()
     if dataclasses.is_dataclass(model) and not isinstance(model, type):
-        return {field.name: getattr(model, field.name) for field in dataclasses.fields(model)}
+        return {
+            field.name: getattr(model, field.name)
+            for field in dataclasses.fields(model)
+        }
     return vars(model)
 
 
-def _matches_predicate(value: Any, expected: Predicate) -> bool:
-    if isinstance(expected, Between):
-        return expected.matches(value)
+def _matches_predicate(value: Any, expected: Any) -> bool:
     if callable(expected):
         return bool(expected(value))
     return value == expected
@@ -126,18 +105,11 @@ class ModelMetadata:
     parameter_source: str | None = None
 
     @classmethod
-    def from_experiment(
-        cls,
-        experiment: Any,
-        parameter_counter: ParameterCounter | None = None,
-    ) -> ModelMetadata:
+    def from_experiment(cls, experiment: Any) -> ModelMetadata:
         values = dict(_model_values(experiment))
         total_params = active_params = None
         source = None
-        if parameter_counter is not None:
-            counts = parameter_counter(experiment)
-            source = _callable_name(parameter_counter)
-        elif hasattr(experiment, "parameter_counts"):
+        if hasattr(experiment, "parameter_counts"):
             counts = experiment.parameter_counts()
             source = f"{type(experiment).__module__}.{type(experiment).__qualname__}.parameter_counts"
         else:
@@ -155,50 +127,99 @@ class ModelMetadata:
 
 
 @dataclasses.dataclass(frozen=True)
-class Plot:
-    """Base class for declarative plot requests."""
-
-    kind: ClassVar[str] = "plot"
-
-
-@dataclasses.dataclass(frozen=True)
-class LossAlignment(Plot):
-    kind: ClassVar[str] = "loss_alignment"
+class LossAlignment:
     axes: Sequence[str] = ("tokens",)
     ema: float | None = 0.9
+    metric: str = "lm loss"
+    title: str | None = None
+    xlim: Mapping[str, AxisRange] = dataclasses.field(default_factory=dict)
+    ylim: AxisRange | None = None
 
 
 @dataclasses.dataclass(frozen=True)
-class EndpointScalingLaw(Plot):
-    kind: ClassVar[str] = "endpoint_scaling_law"
-    x: Sequence[str] = ("total_params", "active_params", "flops")
+class LearningRateBowl:
+    learning_rate: str = "matrix_lr"
+    group_by: str | None = None
+    metric: str = "lm loss"
+    ema: float | None = 0.9
+    log_x: bool = True
+    xlim: AxisRange | None = None
+    ylim: AxisRange | None = None
+    title: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
-class EvalMacro(Plot):
-    kind: ClassVar[str] = "eval_macro"
+class EndpointScalingLaw:
+    x: Sequence[str] = ("total_params", "active_params", "tokens", "flops")
+    metric: str = "lm loss"
+    ema: float | None = 0.9
+    title: str | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class ChinchillaScalingLaw:
+    parameter: str = "active_params"
+    metric: str = "lm loss"
+    ema: float | None = 0.9
+    min_tokens: float = 0.0
+    samples_per_model: int = 64
+    title: str | None = None
+
+
+@dataclasses.dataclass(frozen=True)
+class EvalMacro:
     task_groups: Mapping[str, Sequence[str]] = dataclasses.field(default_factory=dict)
+    chance_baselines: Mapping[str, float] = dataclasses.field(default_factory=dict)
+    chance_adjusted: bool = False
+    value_scale: float = 100.0
+    title: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
-class EvalTrajectories(Plot):
-    kind: ClassVar[str] = "eval_trajectories"
+class EvalTrajectories:
     task_groups: Mapping[str, Sequence[str]] = dataclasses.field(default_factory=dict)
     axes: Sequence[str] = ("tokens", "flops")
+    chance_baselines: Mapping[str, float] = dataclasses.field(default_factory=dict)
+    chance_adjusted: bool = False
+    value_scale: float = 100.0
+    title: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
-class TaskHeatmap(Plot):
-    kind: ClassVar[str] = "task_heatmap"
+class TaskHeatmap:
     task_groups: Mapping[str, Sequence[str]] = dataclasses.field(default_factory=dict)
+    grouped: bool = False
+    value_scale: float = 100.0
+    decimals: int = 4
+    higher_is_better: bool = True
+    task_labels: Mapping[str, str] = dataclasses.field(default_factory=dict)
+    namespace_labels: Mapping[str, str] = dataclasses.field(default_factory=dict)
+    metric_labels: Mapping[str, str] = dataclasses.field(default_factory=dict)
+    title: str | None = None
 
 
 @dataclasses.dataclass(frozen=True)
-class MetricCurves(Plot):
-    kind: ClassVar[str] = "metric_curves"
+class MetricCurves:
     metrics: Sequence[str] = ()
     x: str = "tokens"
     ema: float | None = 0.9
+    better: Mapping[str, str] = dataclasses.field(default_factory=dict)
+    y_limits: Mapping[str, tuple[float, float]] = dataclasses.field(
+        default_factory=dict
+    )
+    title: str | None = None
+
+
+PlotSpec = (
+    LossAlignment
+    | LearningRateBowl
+    | EndpointScalingLaw
+    | ChinchillaScalingLaw
+    | EvalMacro
+    | EvalTrajectories
+    | TaskHeatmap
+    | MetricCurves
+)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -207,26 +228,20 @@ class Report:
 
     name: str
     source: WandbGroup
-    plots: Sequence[Plot]
+    plots: Sequence[PlotSpec]
     select: Models = dataclasses.field(default_factory=Models)
     models: Sequence[ModelMetadata] = ()
-    parameter_counter: ParameterCounter | None = dataclasses.field(
-        default=None,
-        repr=False,
-        compare=False,
-    )
 
     def with_experiments(self, experiments: Sequence[Any]) -> Report:
         selected = self.select.select(experiments)
         return dataclasses.replace(
             self,
-            models=tuple(
-                ModelMetadata.from_experiment(exp, self.parameter_counter)
-                for exp in selected
-            ),
+            models=tuple(ModelMetadata.from_experiment(exp) for exp in selected),
         )
 
     def selected_models(self) -> list[ModelMetadata]:
+        if not self.models:
+            return []
         return self.select.select(self.models)
 
     def to_dict(self) -> dict[str, Any]:
@@ -235,51 +250,11 @@ class Report:
             "name": self.name,
             "source": dataclasses.asdict(self.source),
             "select": _jsonable(dataclasses.asdict(self.select)),
-            "parameter_counter": (
-                _callable_name(self.parameter_counter)
-                if self.parameter_counter is not None else None
-            ),
             "models": [_jsonable(dataclasses.asdict(model)) for model in selected],
             "plots": [
-                {"kind": plot.kind, **_jsonable(dataclasses.asdict(plot))}
+                {"kind": type(plot).__name__, **_jsonable(dataclasses.asdict(plot))}
                 for plot in self.plots
             ],
-        }
-
-
-@dataclasses.dataclass(frozen=True)
-class EvalReport(Report):
-    """Semantic alias for a report declared beside evaluation definitions."""
-
-
-@dataclasses.dataclass(frozen=True)
-class CombinedReport:
-    """Compose training and evaluation reports under one shared selector."""
-
-    name: str
-    training: Report
-    evaluations: EvalReport
-    select: Models = dataclasses.field(default_factory=Models)
-
-    def to_dict(self) -> dict[str, Any]:
-        training = dataclasses.replace(self.training, select=self.select)
-        evaluations = dataclasses.replace(self.evaluations, select=self.select)
-        train_models = training.selected_models()
-        eval_models = evaluations.selected_models()
-        if train_models and eval_models:
-            train_names = {model.name for model in train_models}
-            eval_names = {model.name for model in eval_models}
-            if train_names != eval_names:
-                missing_evals = sorted(train_names - eval_names)
-                missing_training = sorted(eval_names - train_names)
-                raise ValueError(
-                    "Combined report model mismatch: "
-                    f"missing evaluations={missing_evals}, missing training={missing_training}"
-                )
-        return {
-            "name": self.name,
-            "training": training.to_dict(),
-            "evaluations": evaluations.to_dict(),
         }
 
 

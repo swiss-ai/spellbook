@@ -76,7 +76,9 @@ time. A training report normally lives beside its experiment `sweep`:
 
 ```python
 from spellbook.reporting import (
+    ChinchillaScalingLaw,
     EndpointScalingLaw,
+    LearningRateBowl,
     LossAlignment,
     Models,
     Report,
@@ -91,20 +93,26 @@ report = Report(
         exclude=["router-*"],
     ),
     plots=[
-        LossAlignment(axes=["tokens", "flops", "lr_cooldown"]),
-        EndpointScalingLaw(x=["total_params", "active_params", "flops"]),
+        LearningRateBowl(group_by="gbs", learning_rate="matrix_lr"),
+        LossAlignment(
+            axes=["tokens", "flops", "lr_cooldown"],
+            xlim={"tokens": (20, None)},
+            ylim=(None, 3.0),
+        ),
+        EndpointScalingLaw(x=["total_params", "active_params", "tokens", "flops"]),
+        ChinchillaScalingLaw(parameter="active_params"),
     ],
 )
 ```
 
 When the module also defines `sweep`, the report loader selects those experiments
-before any future WandB history fetch and records their total/active parameter
+before the WandB history fetch and records their total/active parameter
 metadata. Evaluation semantics remain in the evaluation file:
 
 ```python
-from spellbook.reporting import EvalMacro, EvalReport, TaskHeatmap, WandbGroup
+from spellbook.reporting import EvalMacro, Report, TaskHeatmap, WandbGroup
 
-eval_report = EvalReport(
+eval_report = Report(
     name="kda-scaling-ladder-evals",
     source=WandbGroup(
         "apertus/apertus2-scaling-ladder-evals",
@@ -112,26 +120,63 @@ eval_report = EvalReport(
     ),
     plots=[
         EvalMacro(task_groups=EVAL_GROUPS),
-        TaskHeatmap(task_groups=EVAL_GROUPS),
+        TaskHeatmap(
+            task_groups={
+                "English": ENGLISH_EVALS,
+                "Multilingual": MULTILINGUAL_EVALS,
+                "Coding": CODING_EVALS,
+            },
+            grouped=True,
+            task_labels={"custom_benchmark": "Custom Benchmark"},
+            namespace_labels={"heldout": "held-out"},
+            metric_labels={
+                "special::benchmark/score": "Special benchmark label",
+            },
+        ),
     ],
 )
 ```
 
-Generate and validate the resolved JSON plan with:
+Render SVG and PNG figures, CSV histories, and fit metadata with:
 
 ```bash
 uv run python main.py report experiments/path/experiment.py
-uv run python main.py report evals/path/evaluate.py --variable eval_report --output report.json
+uv run python main.py report evals/path/evaluate.py --variable eval_report --output-dir reports
 ```
 
-`Models` supports exact `names`, config-field `where` predicates (including
-`Between`), and glob-style `exclude` patterns. `CombinedReport` applies one shared
-selector to training and evaluation reports and errors when their model IDs differ.
+Use `--refresh` to ignore cached WandB histories. Use `--plan` to validate and
+print the resolved report without contacting WandB.
+
+`Models` supports exact `names`, config-field `where` values or predicates, and
+glob-style `exclude` patterns. Training and evaluation reports stay in their
+respective definition files.
+
+`WandbGroup.runs` can restrict a report to exact run IDs or names, which is useful
+when one logical model trajectory consists of known continuation pieces.
+`WandbGroup.run_namespaces` maps labels to run-name globs so evaluation suites that
+reuse metric keys remain separate. For example, an eval report can reference both
+`0shot::arc_easy/acc_norm` and `10shot::arc_easy/acc_norm`; generated panel titles
+show these as `0shot — arc_easy/acc_norm` and `10shot — arc_easy/acc_norm`.
 
 `MegatronExperiment.parameter_counts()` supports standard attention, MLA, and KDA,
 including mixed KDA layer patterns and latent-MoE routed inputs/projections. A
-specialized experiment can override that method, or a report can pass an explicit
-`parameter_counter` callable; its qualified name is preserved in the JSON plan.
+specialized experiment can override that method for different parameter accounting.
+
+Reports use one shared Matplotlib style, EMA `0.9` by default, four-decimal endpoint
+labels, and winner stars. `MetricCurves.better` accepts `"min"`, `"max"`, or
+`"abs_zero"`; the last option is intended for routing-violation metrics where
+closer to zero is better. Resumed runs that match one selected model are stitched
+on consumed tokens (or optimizer step when tokens are unavailable), with the later
+piece winning overlapping points.
+
+Chance-adjusted evaluation metrics and their `chance_baselines` use fractions in
+`[0, 1]`; `EvalMacro.value_scale` and `EvalTrajectories.value_scale` default to
+`100` for percentage display. Endpoint power laws require at least five models so
+the three-parameter fit has more than one residual degree of freedom. The
+Chinchilla-style law fits `L(N,D) = E + A N^-alpha + B D^-beta` from sampled
+training trajectories, using total or active parameters for `N` and consumed
+tokens for `D`. A minimum token cutoff can exclude optimizer warmup, and the
+figure and fit JSON warn when either exponent reaches a fit bound.
 
 ## `.env` support
 
