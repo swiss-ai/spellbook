@@ -6,6 +6,12 @@ Notable changes to Spellbook are documented here.
 
 ### Added
 
+- A declarative experiment-reporting API for selecting WandB runs, caching and
+  stitching continuation histories, and rendering consistent training curves,
+  evaluation macros and trajectories, grouped task heatmaps, learning-rate
+  bowls, and endpoint or Chinchilla-style scaling-law fits.
+- Megatron parameter counting for standard attention, MLA, and KDA
+  architectures, including mixed KDA layer patterns and latent-MoE projections.
 - Task-mode Megatron launches can disable Spellbook's explicit `numactl` wrapper
   with `SlurmBackend(numa_bind=False)`, leaving CPU affinity to Slurm.
 - Slurm launches can use a non-login command shell with
