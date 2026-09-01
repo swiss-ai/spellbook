@@ -172,12 +172,18 @@ class MegatronPathTest(unittest.TestCase):
         cfg.eval_runs = [
             LMEvalRunConfig(
                 name="custom",
-                tasks=["custom_task"],
+                tasks=["/tasks/custom_task.yaml"],
                 lm_eval_args={"include_path": "/tasks"},
             )
         ]
         script = _render(cfg, 10, False)
-        self.assertIn('TaskManager(include_path="/tasks")', script)
+        self.assertIn("from lm_eval.config import EvaluatorConfig", script)
+        self.assertIn('tasks=["/tasks/custom_task.yaml"]', script)
+        self.assertIn('include_path="/tasks"', script)
+        self.assertIn("task_manager = eval_config.process_tasks()", script)
+        self.assertIn(
+            "get_task_dict(eval_config.tasks, task_manager=task_manager)", script
+        )
 
     def test_missing_dotenv_file_is_allowed(self) -> None:
         script = _render(_config("/path/to/Megatron-LM"), 10, False)

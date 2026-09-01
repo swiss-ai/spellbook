@@ -14,7 +14,8 @@ if [[ "${SLURM_PROCID}" == "0" ]]; then
 from importlib.metadata import version
 
 from datasets import load_dataset
-from lm_eval.tasks import TaskManager, get_task_dict
+from lm_eval.config import EvaluatorConfig
+from lm_eval.tasks import get_task_dict
 
 lm_eval_version = version("lm_eval")
 print(f"lm-eval version used for dataset prefetch: {lm_eval_version}")
@@ -23,10 +24,12 @@ load_dataset({{ args | map("tojson") | join(", ") }})
 {% endfor %}
 # Build task-specific process_docs/dataset.map caches before releasing other ranks.
 {% for run in dataset_prefetch_runs %}
-get_task_dict(
-    {{ run.tasks | tojson }},
-    task_manager=TaskManager({% if run.include_path %}include_path={{ run.include_path | tojson }}{% endif %}),
+eval_config = EvaluatorConfig(
+    tasks={{ run.tasks | tojson }},{% if run.include_path %}
+    include_path={{ run.include_path | tojson }},{% endif %}
 )
+task_manager = eval_config.process_tasks()
+get_task_dict(eval_config.tasks, task_manager=task_manager)
 {% endfor %}
 PYEOF
   )
