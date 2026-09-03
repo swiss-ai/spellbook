@@ -129,6 +129,20 @@ class MegatronPathTest(unittest.TestCase):
             script,
         )
 
+    def test_cpus_per_task_is_used_for_allocation_and_launch(self) -> None:
+        cfg = _config("/path/to/Megatron-LM")
+        cfg.cpus_per_task = 36
+
+        script = _render(cfg, 10, False)
+
+        self.assertIn("#SBATCH --cpus-per-task=36", script)
+        launch = script[script.index("srun ") : script.index("-u bash -lc")]
+        self.assertIn("--cpus-per-task=36", launch)
+
+        cfg.cpus_per_task = None
+        script = _render(cfg, 10, False)
+        self.assertNotIn("cpus-per-task", script)
+
     def test_sbatch_does_not_inherit_python_environment(self) -> None:
         with patch.dict(
             "os.environ",

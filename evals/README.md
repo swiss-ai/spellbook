@@ -118,6 +118,7 @@ cfg = MegatronEvalConfig(
     partition="normal",
     nodes=4,
     gpus_per_node=4,
+    cpus_per_task=72,
     exclude="nid007277",
     srun_extra_args="--network=disable_rdzv_get",
     env_vars={
@@ -296,8 +297,10 @@ are therefore rendered consistently for both launch modes.
 Set `launch_mode="tasks"` to launch one eval Python process per Slurm task
 instead of one node task that starts `torchrun`. In task mode,
 `ntasks-per-node` is set to `gpus_per_node`, and each task receives Slurm's
-`RANK`, `LOCAL_RANK`, and `WORLD_SIZE` environment. Only local rank 0 installs
-packages; its sibling ranks wait before starting `lm_eval`.
+`RANK`, `LOCAL_RANK`, and `WORLD_SIZE` environment. `cpus_per_task` defaults to
+72 and is applied to both the batch allocation and its `srun` step; set it to
+`None` to omit both options. Only local rank 0 installs packages; its sibling
+ranks wait before starting `lm_eval`.
 
 ### Submit a range of checkpoints
 

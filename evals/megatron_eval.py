@@ -94,6 +94,7 @@ class MegatronEvalConfig:
     partition: str = ""
     nodes: int = 1
     gpus_per_node: int = 4
+    cpus_per_task: int | None = 72
     launch_mode: str = "torchrun"     # "torchrun" or "tasks"
     srun_extra_args: str = ""         # extra flags appended verbatim to srun
     run_time: str = "03:00:00"

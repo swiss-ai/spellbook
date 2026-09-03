@@ -46,6 +46,9 @@ Notable changes to Spellbook are documented here.
 
 ### Fixed
 
+- Megatron evaluations now configure `cpus_per_task` for both the batch
+  allocation and its `srun` step. This prevents evaluations submitted by a
+  one-CPU checkpoint watcher from binding every GPU rank to a single CPU.
 - Batch-launched Megatron training, evaluation, inference, and checkpoint-merge
   steps now inherit their task layout from the matching `#SBATCH` allocation
   instead of redundantly overriding `--nodes`, `--ntasks`, or
