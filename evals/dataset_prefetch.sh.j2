@@ -25,7 +25,8 @@ load_dataset({{ args | map("tojson") | join(", ") }})
 # Build task-specific process_docs/dataset.map caches before releasing other ranks.
 {% for run in dataset_prefetch_runs %}
 eval_config = EvaluatorConfig(
-    tasks={{ run.tasks | tojson }},{% if run.include_path %}
+    tasks={{ run.tasks | tojson }},
+    metadata={{ metadata | tojson }},{% if run.include_path %}
     include_path={{ run.include_path | tojson }},{% endif %}
 )
 task_manager = eval_config.process_tasks()

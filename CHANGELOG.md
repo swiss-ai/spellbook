@@ -46,6 +46,9 @@ Notable changes to Spellbook are documented here.
 
 ### Fixed
 
+- lm-eval dataset prefetch now passes the configured metadata to task loading.
+  This fixes RULER tasks that need the tokenizer and context-length metadata to
+  generate their synthetic datasets.
 - Megatron evaluations now configure `cpus_per_task` for both the batch
   allocation and its `srun` step. This prevents evaluations submitted by a
   one-CPU checkpoint watcher from binding every GPU rank to a single CPU.

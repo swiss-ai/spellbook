@@ -165,6 +165,7 @@ class MegatronPathTest(unittest.TestCase):
 
     def test_dataset_prefetch_has_global_completion_barrier(self) -> None:
         cfg = _config("/path/to/Megatron-LM")
+        cfg.metadata = {"tokenizer": "tokenizer", "max_seq_lengths": [4096]}
         cfg.dataset_prefetch = {"task": ["dataset"]}
         script = _render(cfg, 10, False)
 
@@ -182,6 +183,9 @@ class MegatronPathTest(unittest.TestCase):
         self.assertNotIn("timeout --signal=TERM 1800s python3", script)
         self.assertIn("Timed out waiting for dataset prefetch status", script)
         self.assertIn('lm_eval_version = version("lm_eval")', script)
+        self.assertIn("metadata=", script)
+        self.assertIn('"max_seq_lengths": [4096]', script)
+        self.assertIn('"tokenizer": "tokenizer"', script)
 
         cfg.eval_runs = [
             LMEvalRunConfig(
