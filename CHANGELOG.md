@@ -46,6 +46,8 @@ Notable changes to Spellbook are documented here.
 
 ### Fixed
 
+- Megatron evaluation metadata lookup now honors an explicit model `load` path,
+  while retaining `checkpoint_dir/model_name` as the default.
 - lm-eval dataset prefetch now passes the configured metadata to task loading.
   This fixes RULER tasks that need the tokenizer and context-length metadata to
   generate their synthetic datasets.

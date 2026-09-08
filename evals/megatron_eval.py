@@ -37,7 +37,7 @@ _RUN_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 class RangeMode(Enum):
-    PARALLEL   = "parallel"    # one job per ckpt, all submitted at once
+    PARALLEL = "parallel"  # one job per ckpt, all submitted at once
     SEQUENTIAL = "sequential"  # one job per ckpt, dependency=singleton
 
 
@@ -62,29 +62,33 @@ class LMEvalRunConfig:
 class MegatronEvalConfig:
     # --- Model ---
     model_name: str
-    checkpoint_dir: str              # base dir; ckpt_step is appended at submit time
+    checkpoint_dir: str  # base dir; ckpt_step is appended at submit time
     tokenizer_model: str
 
     # --- Megatron ---
-    megatron_path: str               # local path or Git URL for the Megatron-LM repo
-    megatron_commit: str = ""        # if set, a git worktree is pinned to this commit
+    megatron_path: str  # local path or Git URL for the Megatron-LM repo
+    megatron_commit: str = ""  # if set, a git worktree is pinned to this commit
     megatron_container_path: str = "/opt/megatron"
 
     # --- Eval ---
     tasks: list[str] = dataclasses.field(default_factory=list, metadata=_LM_EVAL_ARG)
     batch_size: int = dataclasses.field(default=16, metadata=_LM_EVAL_ARG)
     cache_requests: str = dataclasses.field(default="", metadata=_LM_EVAL_ARG)
-    devices: int = 4                 # total GPUs passed to lm_eval (--devices)
+    devices: int = 4  # total GPUs passed to lm_eval (--devices)
     tp: int = 1
     ep: int = 1
-    seq_length: int = 4096           # lm-eval adapter context limit
-    micro_batch_size: int = 1        # per-rank batch passed to the lm-eval adapter
-    metadata: dict[str, object] = dataclasses.field(default_factory=dict, metadata=_LM_EVAL_ARG)
-    extra_args: str = ""             # extra flags appended verbatim to lm_eval model_args
+    seq_length: int = 4096  # lm-eval adapter context limit
+    micro_batch_size: int = 1  # per-rank batch passed to the lm-eval adapter
+    metadata: dict[str, object] = dataclasses.field(
+        default_factory=dict, metadata=_LM_EVAL_ARG
+    )
+    extra_args: str = ""  # extra flags appended verbatim to lm_eval model_args
     model_args_extra: dict[str, Any] = dataclasses.field(default_factory=dict)
-    output_dir: str | None = None     # defaults to <submission directory>/evals
+    output_dir: str | None = None  # defaults to <submission directory>/evals
     log_samples: bool = dataclasses.field(default=False, metadata=_LM_EVAL_ARG)
-    write_out: bool = dataclasses.field(default=False, metadata=_LM_EVAL_ARG)  # print prompts
+    write_out: bool = dataclasses.field(
+        default=False, metadata=_LM_EVAL_ARG
+    )  # print prompts
     eval_runs: list[LMEvalRunConfig] = dataclasses.field(
         default_factory=list, kw_only=True
     )
@@ -95,30 +99,32 @@ class MegatronEvalConfig:
     nodes: int = 1
     gpus_per_node: int = 4
     cpus_per_task: int | None = 72
-    launch_mode: str = "torchrun"     # "torchrun" or "tasks"
-    srun_extra_args: str = ""         # extra flags appended verbatim to srun
+    launch_mode: str = "torchrun"  # "torchrun" or "tasks"
+    srun_extra_args: str = ""  # extra flags appended verbatim to srun
     run_time: str = "03:00:00"
     reservation: str = ""
-    exclude: str = ""                 # Slurm node list passed to --exclude
+    exclude: str = ""  # Slurm node list passed to --exclude
     log_dir: str = "slurm_logs/eval"
-    watcher_dir: str = ""             # generated watcher scripts; defaults to <project>/evals
+    watcher_dir: str = ""  # generated watcher scripts; defaults to <project>/evals
 
     # --- Container ---
-    container_edf: str = ""          # e.g. "apertus2-alps4-temp"
-    container_mounts: str = ""       # e.g. "${SCRATCH}:${SCRATCH},${HOME}:${HOME}"
+    container_edf: str = ""  # e.g. "apertus2-alps4-temp"
+    container_mounts: str = ""  # e.g. "${SCRATCH}:${SCRATCH},${HOME}:${HOME}"
 
     # --- WandB ---
     wandb_project: str = ""
-    wandb_id: str = ""                # run ID; defaults to model_name if empty
+    wandb_id: str = ""  # run ID; defaults to model_name if empty
 
     # --- Cache / storage ---
-    hf_home: str = ""                # HF_HOME and HF_DATASETS_CACHE; skipped if empty
+    hf_home: str = ""  # HF_HOME and HF_DATASETS_CACHE; skipped if empty
 
     # --- lm-eval install (once per node) ---
-    lm_eval_install: str = ""        # pip install URL/path; skipped if empty
+    lm_eval_install: str = ""  # pip install URL/path; skipped if empty
     # Use the eval interpreter via python -m pip instead of bare pip.
     lm_eval_install_with_python: bool = False
-    install_commands: str = ""       # raw shell commands run before evaluation; skipped if empty
+    install_commands: str = (
+        ""  # raw shell commands run before evaluation; skipped if empty
+    )
 
     # --- Dataset prefetch ---
     # Mapping from lm-eval task name to load_dataset() call args, e.g.:
@@ -195,14 +201,15 @@ def _validate_eval_runs(cfg: MegatronEvalConfig) -> None:
 def _is_megatron_url(value: str) -> bool:
     parsed = urlparse(value)
     return (
-        parsed.scheme in {"git", "http", "https", "ssh"}
-        and bool(parsed.netloc)
+        parsed.scheme in {"git", "http", "https", "ssh"} and bool(parsed.netloc)
     ) or (value.startswith("git@") and ":" in value)
 
 
 def _checkpoint_load_path(cfg: MegatronEvalConfig, reporting_step: int) -> Path:
     """Resolve the checkpoint directory Megatron will actually load."""
-    model_root = Path(cfg.checkpoint_dir) / cfg.model_name
+    model_root = Path(
+        cfg.model_args_extra.get("load", Path(cfg.checkpoint_dir) / cfg.model_name)
+    )
     load_step = cfg.model_args_extra.get("ckpt_step", reporting_step)
     if load_step:
         return model_root / f"iter_{int(load_step):07d}"
@@ -282,7 +289,9 @@ def _render_checkpoints(
     ctx["dependency_singleton"] = dependency_singleton
     ctx["ntasks_per_node"] = cfg.gpus_per_node if cfg.launch_mode == "tasks" else 1
     ctx["total_tasks"] = cfg.nodes * ctx["ntasks_per_node"]
-    output_dir = Path(cfg.output_dir).expanduser() if cfg.output_dir else Path.cwd() / "evals"
+    output_dir = (
+        Path(cfg.output_dir).expanduser() if cfg.output_dir else Path.cwd() / "evals"
+    )
     model_output_dir = output_dir.resolve() / cfg.model_name
     ctx["suite_output_dir"] = str(
         model_output_dir / f"step_{checkpoints[0][0]}"
@@ -309,11 +318,7 @@ def _render_checkpoints(
                 checkpoint_output / run.name if run is not None else checkpoint_output
             )
             base_id = cfg.wandb_id or cfg.model_name
-            run_id = (
-                base_id
-                if run is None
-                else run.wandb_id or f"{base_id}-{run.name}"
-            )
+            run_id = base_id if run is None else run.wandb_id or f"{base_id}-{run.name}"
             wandb_parts = [
                 f"project={cfg.wandb_project}",
                 f"id={run_id}",
@@ -332,9 +337,7 @@ def _render_checkpoints(
                     "name": run.name if run is not None else "default",
                     "ckpt_step": ckpt_step,
                     "output_path": str(run_output_path),
-                    "checkpoint_path": str(
-                        _checkpoint_load_path(cfg, ckpt_step)
-                    ),
+                    "checkpoint_path": str(_checkpoint_load_path(cfg, ckpt_step)),
                     "env_vars": run.env_vars if run is not None else {},
                     "lm_eval_args_lines": lm_eval_flags.to_shell_lines(
                         _lm_eval_args(cfg, ckpt_step, run_output_path, run)
@@ -416,14 +419,10 @@ def render_watcher_script(
     if project_dir is None:
         project_dir = Path(__file__).resolve().parent.parent
     watcher_name = (
-        cfg.model_name
-        if config_group is None
-        else f"{cfg.model_name}-{config_group}"
+        cfg.model_name if config_group is None else f"{cfg.model_name}-{config_group}"
     )
     output_root = (
-        Path(cfg.watcher_dir).expanduser()
-        if cfg.watcher_dir
-        else project_dir / "evals"
+        Path(cfg.watcher_dir).expanduser() if cfg.watcher_dir else project_dir / "evals"
     )
     output_dir = output_root / watcher_name
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -480,9 +479,7 @@ def _submit_checkpoints(
     checkpoints: tuple[tuple[int, int | None], ...],
     dependency_singleton: bool,
 ) -> str:
-    (Path(cfg.log_dir).expanduser() / cfg.model_name).mkdir(
-        parents=True, exist_ok=True
-    )
+    (Path(cfg.log_dir).expanduser() / cfg.model_name).mkdir(parents=True, exist_ok=True)
     job_id = _sbatch(
         _render_checkpoints(cfg, checkpoints, dependency_singleton),
         cfg.reservation,
@@ -536,9 +533,7 @@ def submit_evaluations(
         checkpoints = tuple((step, tokens.get(step)) for step in checkpoint_group)
         for grouped_cfg in config_groups:
             job_ids.append(
-                _submit_checkpoints(
-                    grouped_cfg, checkpoints, dependency_singleton
-                )
+                _submit_checkpoints(grouped_cfg, checkpoints, dependency_singleton)
             )
     return job_ids
 

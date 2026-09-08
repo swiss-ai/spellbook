@@ -83,7 +83,7 @@ class MegatronPathTest(unittest.TestCase):
         worktree_key = hashlib.sha256(f"{url}\0abc123".encode()).hexdigest()[:16]
 
         self.assertIn(f'git clone "{url}" "${{MEGATRON_REPO_PATH}}"', script)
-        self.assertIn('fetch origin --tags --prune', script)
+        self.assertIn("fetch origin --tags --prune", script)
         self.assertIn(
             'MEGATRON_CACHE_ROOT="${SCRATCH:-${TMPDIR:-/tmp}/spellbook-${USER:-$(id -u)}}/tmp"',
             script,
@@ -92,9 +92,7 @@ class MegatronPathTest(unittest.TestCase):
             f'MEGATRON_WORKTREE_PATH="${{MEGATRON_CACHE_ROOT}}/megatron_worktrees/{worktree_key}"',
             script,
         )
-        self.assertIn(
-            'git -C "${MEGATRON_SOURCE_PATH}" worktree add --detach', script
-        )
+        self.assertIn('git -C "${MEGATRON_SOURCE_PATH}" worktree add --detach', script)
         self.assertNotIn(f'git -C "{url}"', script)
 
     def test_unpinned_url_refreshes_and_uses_remote_head_worktree(self) -> None:
@@ -295,8 +293,21 @@ class MegatronPathTest(unittest.TestCase):
         self.assertIn("/checkpoints/model/iter_0000010/common.pt", script)
         self.assertIn("/checkpoints/model/iter_0000020/common.pt", script)
         self.assertIn('state.get("num_floating_point_operations_so_far")', script)
-        self.assertIn('WANDB_ARGS[1]="${WANDB_ARGS[1]},total_flops=${TOTAL_FLOPS}"', script)
+        self.assertIn(
+            'WANDB_ARGS[1]="${WANDB_ARGS[1]},total_flops=${TOTAL_FLOPS}"', script
+        )
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+    def test_load_override_resolves_checkpoint_metadata(self) -> None:
+        cfg = _config("/path/to/Megatron-LM")
+        cfg.model_args_extra = {"load": "/relocated/chonk"}
+        cfg.wandb_project = "evals"
+
+        script = _render(cfg, 59604, False)
+
+        self.assertIn("load=/relocated/chonk", script)
+        self.assertIn("/relocated/chonk/iter_0059604/common.pt", script)
+        self.assertNotIn("/checkpoints/model/iter_0059604/common.pt", script)
 
     def test_zero_load_step_resolves_metadata_from_checkpoint_tracker(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -387,11 +398,7 @@ class MegatronPathTest(unittest.TestCase):
                 f'MARKER="{watch_dir}/latest_checkpointed_iteration.txt"', script
             )
             self.assertIn(
-                str(
-                    state_dir
-                    / cfg.model_name
-                    / ".submitted_steps"
-                ),
+                str(state_dir / cfg.model_name / ".submitted_steps"),
                 script,
             )
             self.assertTrue((root / cfg.log_dir / cfg.model_name).is_dir())
@@ -441,9 +448,7 @@ class MegatronPathTest(unittest.TestCase):
                 root / "evals" / watcher_name / "watcher.sh",
             )
             self.assertIn(f"#SBATCH --job-name=watcher_{watcher_name}", script)
-            self.assertIn(
-                str(state_dir / watcher_name / ".submitted_steps"), script
-            )
+            self.assertIn(str(state_dir / watcher_name / ".submitted_steps"), script)
             self.assertIn('--group "coding"', script)
             self.assertIn('--eval-job-name "eval_5b_coding"', script)
             self.assertIn("--dependency-singleton", script)
@@ -468,7 +473,9 @@ class MegatronPathTest(unittest.TestCase):
                 return_value=(cfg, "/override", "/state"),
             ),
             patch("evals.watcher._watcher_stop_file") as stop_file,
-            patch("evals.watcher.render_watcher_script", return_value=Path("watcher.sh")) as render,
+            patch(
+                "evals.watcher.render_watcher_script", return_value=Path("watcher.sh")
+            ) as render,
             patch("evals.watcher.subprocess.run", return_value=completed),
         ):
             stop_file.return_value.unlink.return_value = None
@@ -481,9 +488,7 @@ class MegatronPathTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _config("/path/to/Megatron-LM")
             stop_file = Path(tmp) / ".watcher_stop"
-            args = argparse.Namespace(
-                config="config.py", model=None, group=None
-            )
+            args = argparse.Namespace(config="config.py", model=None, group=None)
             completed = subprocess.CompletedProcess(
                 ["scancel"], returncode=0, stdout="", stderr=""
             )
