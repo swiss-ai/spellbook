@@ -19,12 +19,15 @@ locks/
 
 # logs
 slurm_logs/
+slurm-*.out
+slurm-*.err
 nsys/
 
 # Important
 !experiments/
 experiments/*
 !experiments/big_moe_speed_ablations_example/
+!experiments/nemorl_gym_example/
 !experiments/data/
 
 # Evaluation runtime artifacts
