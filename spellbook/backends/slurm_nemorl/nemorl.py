@@ -73,7 +73,6 @@ class SlurmNemoRLBackend:
     ray_port: int = 1200
     ray_tmpdir: str = "/tmp/ray-spellbook-nemorl"
     srun_extra_args: str = "--network=disable_rdzv_get --mpi=pmix"
-    master_port: int = 6800
     # Requeue the job under the same name until max_num_steps is reached, so a run
     # longer than run_time continues from its last checkpoint. Shares the megatron
     # backend's mechanism (spellbook/backends/auto_requeue.sh.j2); NeMo-RL has no
@@ -360,8 +359,8 @@ class SlurmNemoRLBackend:
             gpus_per_node=self.gpus_per_node,
             run_time=self.run_time,
             log_dir=str(log_dir),
-            master_port=self.master_port,
             ray_port=self.ray_port,
+            srun_extra_args=self.srun_extra_args,
             vetnode=self.vetnode,
             vetnode_config=self.vetnode_config
             or str(_SHARED_TEMPLATE_DIR / "vetnode-config.yaml"),

@@ -46,7 +46,8 @@ COMMON_SRUN_ARGS=(
   --overlap
   --export=ALL,"$EXPORTS"
   --container-env="$EXPORTS"
-  --mpi=pmix -l
+  {{ srun_extra_args }}
+  -l
 {%- if container %}
   --environment="{{ container }}"
 {%- endif %}
@@ -54,7 +55,6 @@ COMMON_SRUN_ARGS=(
   --container-mounts="{{ container_mounts }}"
 {%- endif %}
   --container-workdir="{{ nemo_rl_path }}"
-  --network=disable_rdzv_get
 )
 
 cleanup() {

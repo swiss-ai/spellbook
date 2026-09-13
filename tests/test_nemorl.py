@@ -46,7 +46,10 @@ class NemoRLBackendTest(unittest.TestCase):
     def test_renders_recipe_and_two_node_ray_wrapper(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory)
-            body = _backend(vetnode=True).render(_experiment(), output)
+            body = _backend(
+                vetnode=True,
+                srun_extra_args="--network=disable_rdzv_get --mpi=pmix --wait=30",
+            ).render(_experiment(), output)
             body_text = body.read_text()
             recipe = yaml.safe_load((output / "nemorl-test.yaml").read_text())
             wrapper = (output / "nemorl-test.sbatch").read_text()
@@ -65,6 +68,7 @@ class NemoRLBackendTest(unittest.TestCase):
             'EXPORTS="RAY_HEAD_IP,RAY_ADDRESS,RAY_READY_FILE,RAY_DONE_FILE"', wrapper
         )
         self.assertIn("mapfile -t nodes_array", wrapper)
+        self.assertIn("--mpi=pmix --wait=30", wrapper)
         subprocess.run(["bash", "-n"], input=wrapper, text=True, check=True)
 
     def test_default_scheduler_logs_are_outside_checkout(self) -> None:

@@ -49,7 +49,6 @@ class NemoRLExperiment(Experiment):
     # (containers/nemo-rl), which already carries ray and flashinfer — the latter
     # is mandatory, since NeMo-RL hardcodes sampling_backend="flashinfer".
     overlay_paths: tuple[str, ...] = ()
-    container: str = ""
     # NeMo-RL otherwise builds a uv venv per worker; use the container interpreter.
     py_executables_system: bool = True
     # Raw shell run inside the container before the Ray head starts, e.g. to try a
