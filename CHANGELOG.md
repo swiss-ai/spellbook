@@ -16,8 +16,24 @@ Notable changes to Spellbook are documented here.
   with `SlurmBackend(numa_bind=False)`, leaving CPU affinity to Slurm.
 - Slurm launches can use a non-login command shell with
   `SlurmBackend(login_shell=False)` when all environment setup is explicit.
-- An optional, self-contained pre-launch torch/NCCL node-health gate for Megatron batch experiments. It localizes failed nodes, maintains a shared exclusion list, and retries on a fresh allocation before training starts. The design is adapted from Guanshujie’s Megatron Slurm launcher.
-
+- A shared CSCS vetnode preflight for Megatron training, Megatron evaluation,
+  and NeMo-RL. It runs one Slurm task per GPU with local-rank NUMA binding,
+  validates the environment, GPUs, CUDA, and NCCL bandwidth, and can maintain a
+  persistent failed-node exclusion list before resubmitting training jobs.
+- Declarative `NemoRLExperiment` and `SlurmNemoRLBackend` APIs for rendering and
+  submitting NeMo-RL recipes. They support algorithm-specific entrypoints,
+  Hydra overrides, native Megatron checkpoints, topology validation, multi-node
+  Ray head/worker lifecycle, NeMo Gym services, and checkpoint-aware
+  auto-requeue completion.
+- A CPU Slurm preparation tool for NeMo Gym. It builds and verifies the actor
+  and server uv environments, collates and optionally post-processes datasets,
+  creates deterministic train/validation splits, and atomically packs reusable
+  squashfs environments on the Slurm host.
+- An Alps extended-image definition for NeMo-RL with pinned kernels and runtime
+  dependencies plus import and Ray smoke tests.
+- A worked two-node Apertus KDA 5B GRPO example using NeMo Gym, including data
+  preparation, squashfs-mounted Gym environments, and a clean run-local
+  checkpoint directory.
 - A `tools` package for standalone operational launchers, containing the
   multi-node Megatron dynamic-inference HTTP server and a distributed Slurm
   launcher for Megatron checkpoint merging (e.g. checkpoint averaging)
@@ -35,6 +51,13 @@ Notable changes to Spellbook are documented here.
 
 ### Changed
 
+- Megatron auto-requeue uses shared backend templates that support both
+  log-regex completion and NeMo-RL checkpoint-step completion.
+- Scheduler and Ray launcher logs for NeMo-RL default to
+  `$SCRATCH/tmp/spellbook/nemorl/slurm_logs` instead of the source checkout.
+- NeMo Gym environments are prepared outside training and mounted directly at
+  their expected paths, so training jobs only consume immutable prepared
+  artifacts.
 - Megatron evaluation launches now use the shared IOPStor readiness barrier after container copy and package installation, with a ten-minute default timeout.
 
 
@@ -46,6 +69,17 @@ Notable changes to Spellbook are documented here.
 
 ### Fixed
 
+- Exported the resolved Ray head address and shared lifecycle markers into
+  NeMo-RL containers so multi-node workers and the driver join the same cluster.
+- Corrected NeMo-RL data-parallel validation to divide by tensor, pipeline, and
+  context parallelism rather than expert parallelism.
+- Made NeMo Gym preparation rebuild incomplete actor environments and create
+  squashfs images on the Slurm host through a temporary file and atomic rename.
+  This avoids relying on `mksquashfs` or mount privileges inside the container.
+- Packaged the shared vetnode assets, NeMo-RL templates, and NeMo Gym templates
+  in built distributions.
+- Kept the worked NeMo-RL example from auto-resuming an unrelated checkpoint by
+  assigning it a run-local checkpoint directory.
 - Megatron evaluation metadata lookup now honors an explicit model `load` path,
   while retaining `checkpoint_dir/model_name` as the default.
 - lm-eval dataset prefetch now passes the configured metadata to task loading.
@@ -65,6 +99,9 @@ Notable changes to Spellbook are documented here.
 
 ### Known limitations
 
+- Vetnode's upstream GPU evaluator may skip its GPU-health subcheck on GH200
+  systems when DCGM reports an empty module ID; the CUDA and NCCL checks still
+  run and remain enforced.
 - The vLLM evaluation path is not correctly implemented end to end and is not
   production-ready.
 
