@@ -73,14 +73,9 @@ export {{ key }}="{{ value }}"
 {%- endif %}
 {%- endfor %}
 
-{% include "node_health_gate.sh.j2" %}
+{% include "vetnode_gate.sh.j2" %}
 
-# --- Auto-requeue ---
-{% if auto_requeue %}
-AUTO_REQUEUE_SUBMISSION="$(sbatch --parsable --dependency=singleton{% if reservation %} --reservation={{ reservation }}{% endif %} "$0")"
-AUTO_REQUEUE_JOB_ID="${AUTO_REQUEUE_SUBMISSION%%;*}"
-echo "[$(date)] Auto-requeued job ${AUTO_REQUEUE_JOB_ID}"
-{% endif %}
+{% include "auto_requeue.sh.j2" %}
 
 {% if pre_launch_commands is defined and pre_launch_commands %}
 # --- Pre-launch setup ---
@@ -251,14 +246,6 @@ numactl --cpunodebind="${SLURM_LOCALID}" --membind="${SLURM_LOCALID}" \
 {% if auto_requeue and auto_requeue_stop_regex %}
 SRUN_EXIT_CODE=$?
 
-# Do not expose the regex through xtrace before grep reads the log.
-set +x
-SLURM_STDOUT="$(scontrol show job "$SLURM_JOB_ID" -o | sed -n 's/.* StdOut=\([^ ]*\).*/\1/p')"
-if [[ -n "${AUTO_REQUEUE_JOB_ID}" && -n "${SLURM_STDOUT}" ]] && \
-    grep -Eq -- {{ auto_requeue_stop_regex_shell }} "${SLURM_STDOUT}"; then
-  echo "[$(date)] Training completion matched; cancelling auto-requeued job ${AUTO_REQUEUE_JOB_ID}"
-  scancel "${AUTO_REQUEUE_JOB_ID}" || true
-fi
-set -x
+{% include "auto_requeue_stop.sh.j2" %}
 exit "${SRUN_EXIT_CODE}"
 {% endif %}

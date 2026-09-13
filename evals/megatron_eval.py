@@ -32,6 +32,9 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from evals import flags as lm_eval_flags
 
 _TEMPLATES_DIR = Path(__file__).parent
+_SHARED_TEMPLATES_DIR = (
+    Path(__file__).resolve().parent.parent / "spellbook" / "backends"
+)
 _LM_EVAL_ARG = {"lm_eval_arg": True}
 _RUN_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
@@ -109,6 +112,15 @@ class MegatronEvalConfig:
 
     # --- Container ---
     container_edf: str = ""  # e.g. "apertus2-alps4-temp"
+    # CSCS node validation before the eval runs (https://docs.cscs.ch/running/vetnode/).
+    vetnode: bool = False
+    vetnode_config: str = ""
+    vetnode_install: str = "vetnode"
+    vetnode_skip_install: bool = False
+    vetnode_verbose: bool = False
+    vetnode_numa_bind: bool = True
+    vetnode_exclude: bool = False  # evals are short; fail rather than resubmit
+    vetnode_max_excluded_nodes: int = 256
     container_mounts: str = ""  # e.g. "${SCRATCH}:${SCRATCH},${HOME}:${HOME}"
 
     # --- WandB ---
@@ -250,13 +262,18 @@ def _render_checkpoints(
     _validate_eval_runs(cfg)
 
     env = Environment(
-        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
+        loader=FileSystemLoader([str(_TEMPLATES_DIR), str(_SHARED_TEMPLATES_DIR)]),
         undefined=StrictUndefined,
         keep_trailing_newline=True,
     )
     tmpl = env.get_template("megatron_eval.sh.j2")
     ctx = dataclasses.asdict(cfg)
     ctx["megatron_container_path"] = container_path
+    ctx["vetnode_config"] = cfg.vetnode_config or str(
+        _SHARED_TEMPLATES_DIR / "vetnode-config.yaml"
+    )
+    # Keys the persistent exclusion list; model_name scopes it per eval target.
+    ctx["vetnode_key"] = hashlib.sha256(cfg.model_name.encode()).hexdigest()[:16]
     if _is_megatron_url(cfg.megatron_path):
         ctx["megatron_url"] = cfg.megatron_path
         ctx["megatron_path"] = ""
@@ -433,7 +450,7 @@ def render_watcher_script(
     (log_dir / watcher_name).mkdir(parents=True, exist_ok=True)
 
     env = Environment(
-        loader=FileSystemLoader(str(_TEMPLATES_DIR)),
+        loader=FileSystemLoader([str(_TEMPLATES_DIR), str(_SHARED_TEMPLATES_DIR)]),
         undefined=StrictUndefined,
         keep_trailing_newline=True,
     )

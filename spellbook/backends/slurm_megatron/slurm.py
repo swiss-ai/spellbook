@@ -56,14 +56,14 @@ from spellbook.backends.slurm_megatron.create_data_config import create_data_pre
 from spellbook.core.experiment import Experiment
 
 _TEMPLATES_DIR = Path(__file__).parent  # slurm_megatron/
+_SHARED_TEMPLATES_DIR = Path(__file__).resolve().parent.parent
 
 
 def _is_megatron_url(value: str) -> bool:
     """Return whether a Megatron source is a supported Git URL."""
     parsed = urlparse(value)
     return (
-        parsed.scheme in {"git", "http", "https", "ssh"}
-        and bool(parsed.netloc)
+        parsed.scheme in {"git", "http", "https", "ssh"} and bool(parsed.netloc)
     ) or (value.startswith("git@") and ":" in value)
 
 
@@ -103,28 +103,49 @@ class SlurmBackend:
     account: str
     partition: str
     gpus_per_node: int
-    run_time: str                          # "HH:MM:SS"
-    nodes: int | None = None                     # if None, derived from experiment.num_gpus // gpus_per_node
+    run_time: str  # "HH:MM:SS"
+    nodes: int | None = (
+        None  # if None, derived from experiment.num_gpus // gpus_per_node
+    )
     log_dir: str = "slurm_logs"
-    reservation: str = ""                  # adds --reservation to sbatch header + sbatch cmd
-    dependency_singleton: bool = True      # adds --dependency=singleton to sbatch header
-    no_save: bool = False                  # render and submit without writing the .sh file to disk
-    srun_job_id: str = ""                  # when set, use srun.sh.j2 + run inside allocation
-    mem_estimator: bool = False            # use bundled estimator (1 GPU, fake process group)
-    theoretical_memory: bool = False       # use Megatron's tools/report_theoretical_memory.py
-    launch_mode: str = "torchrun"          # "torchrun" or "tasks"; tasks runs python directly per Slurm task
-    numa_bind: bool = True                  # wrap task-mode Python with numactl local-rank binding
-    login_shell: bool = True                # use bash -lc instead of bash -c inside srun
-    auto_requeue: bool = False             # submit next job before srun (sbatch --dependency=singleton $0)
+    reservation: str = ""  # adds --reservation to sbatch header + sbatch cmd
+    dependency_singleton: bool = True  # adds --dependency=singleton to sbatch header
+    no_save: bool = False  # render and submit without writing the .sh file to disk
+    srun_job_id: str = ""  # when set, use srun.sh.j2 + run inside allocation
+    mem_estimator: bool = False  # use bundled estimator (1 GPU, fake process group)
+    theoretical_memory: bool = (
+        False  # use Megatron's tools/report_theoretical_memory.py
+    )
+    launch_mode: str = (
+        "torchrun"  # "torchrun" or "tasks"; tasks runs python directly per Slurm task
+    )
+    numa_bind: bool = True  # wrap task-mode Python with numactl local-rank binding
+    login_shell: bool = True  # use bash -lc instead of bash -c inside srun
+    auto_requeue: bool = (
+        False  # submit next job before srun (sbatch --dependency=singleton $0)
+    )
     auto_requeue_stop_regex: str = r"\[after training is done\] datetime:"
-    node_health_gate: bool = False          # test torch/NCCL before batch experiment launches
-    node_health_gate_timeout: int = 120
-    node_health_gate_max_excluded_nodes: int = 256
-    srun_extra_args: str = ""              # extra flags appended verbatim to every srun call
-    env_vars: dict[str, Any] = field(default_factory=dict)  # infrastructure env vars exported by backend
-    pythonpath_env_vars: list[str] = field(default_factory=list)  # env var names whose values are prepended to PYTHONPATH
+    vetnode_max_excluded_nodes: int = 256
+    # CSCS node validation (https://docs.cscs.ch/running/vetnode/), run before the
+    # torch/NCCL gate. Reports per node, so a failure names the bad node directly,
+    # and its min_bandwidth checks also catch a node that works but is slow.
+    vetnode: bool = False
+    vetnode_config: str = ""  # defaults to the config shipped alongside this backend
+    vetnode_install: str = "vetnode"  # set to "" when the container already has it
+    vetnode_skip_install: bool = False  # pass --skip-install (deps already present)
+    vetnode_verbose: bool = False
+    vetnode_exclude: bool = True  # exclude bad nodes and resubmit, rather than fail
+    srun_extra_args: str = ""  # extra flags appended verbatim to every srun call
+    env_vars: dict[str, Any] = field(
+        default_factory=dict
+    )  # infrastructure env vars exported by backend
+    pythonpath_env_vars: list[str] = field(
+        default_factory=list
+    )  # env var names whose values are prepended to PYTHONPATH
     kernel_cache: bool = False
-    kernel_cache_root: str = "${SCRATCH:-/iopsstor/scratch/cscs/$USER}/tmp/spellbook/kernel-cache"
+    kernel_cache_root: str = (
+        "${SCRATCH:-/iopsstor/scratch/cscs/$USER}/tmp/spellbook/kernel-cache"
+    )
     kernel_cache_key_fields: tuple[str, ...] = ("container", "megatron", "experiment")
     kernel_cache_key_values: dict[str, str] = field(default_factory=dict)
     kernel_cache_warmup_steps: int | None = None
@@ -137,11 +158,14 @@ class SlurmBackend:
         p = Path(path).expanduser()
         if not p.exists() or not p.is_dir():
             return {"status": "missing", "path": str(p)}
-        if subprocess.run(
-            ["git", "-C", str(p), "rev-parse", "--is-inside-work-tree"],
-            capture_output=True,
-            text=True,
-        ).returncode != 0:
+        if (
+            subprocess.run(
+                ["git", "-C", str(p), "rev-parse", "--is-inside-work-tree"],
+                capture_output=True,
+                text=True,
+            ).returncode
+            != 0
+        ):
             return {"status": "not-git", "path": str(p)}
 
         def _run(args: list[str]) -> str:
@@ -245,48 +269,13 @@ class SlurmBackend:
             return "slurm_tasks.sh.j2"
         return "slurm.sh.j2"
 
-    def render(
+    def _resolve_data_paths(
         self,
+        d: dict[str, Any],
         experiment: Experiment,
-        generated_data_args_path: str | Path | None = None,
-    ) -> str:
-        """Render the Jinja2 template for a single experiment. Returns the script string."""
-        env = Environment(
-            loader=FileSystemLoader(str(_TEMPLATES_DIR)),
-            undefined=StrictUndefined,
-            keep_trailing_newline=True,
-        )
-        tmpl = env.get_template(self._template_name())
-
-        d = experiment.to_dict()
-        kernel_cache_experiment_hash = hashlib.sha256(
-            json.dumps(d, sort_keys=True, default=str, separators=(",", ":")).encode()
-        ).hexdigest()
-        container_path = str(d.get("megatron_container_path") or "").rstrip("/")
-        if (
-            not container_path.startswith("/")
-            or container_path == ""
-            or ".." in container_path.split("/")
-            or re.fullmatch(r"/[A-Za-z0-9_./-]+", container_path) is None
-            or len([part for part in container_path.split("/") if part]) < 2
-        ):
-            raise ValueError(
-                "MegatronExperiment.megatron_container_path must be a shell-safe absolute path with at least two components"
-            )
-        d["megatron_container_path"] = container_path
-        megatron_source = str(d.get("megatron_path") or "")
-        if _is_megatron_url(megatron_source):
-            d["megatron_url"] = megatron_source
-            d["megatron_path"] = ""
-            d["megatron_cache_key"] = hashlib.sha256(
-                megatron_source.encode()
-            ).hexdigest()[:16]
-        else:
-            d["megatron_url"] = ""
-            d["megatron_cache_key"] = ""
-        d["megatron_worktree_key"] = hashlib.sha256(
-            f"{megatron_source}\0{d.get('megatron_commit') or ''}".encode()
-        ).hexdigest()[:16]
+        generated_data_args_path: str | Path | None,
+    ) -> None:
+        """Settle which of data_path / data_args_path / base_data_path the run uses."""
         # Explicit data_path wins over data_args_path, which wins over discovery.
         if d.get("data_path") and d.get("data_args_path"):
             d["training_args"] = self._remove_training_arg(
@@ -299,9 +288,7 @@ class SlurmBackend:
             and d.get("base_data_path")
         ):
             paths = [
-                path.strip()
-                for path in d["base_data_path"].split(",")
-                if path.strip()
+                path.strip() for path in d["base_data_path"].split(",") if path.strip()
             ]
             prefixes = create_data_prefix(
                 paths, follow_symlinks=bool(d.get("follow_symlinks"))
@@ -333,45 +320,110 @@ class SlurmBackend:
                 stacklevel=2,
             )
 
-        # Kernel (triton/torch) cache warmup
-        allowed_cache_key_fields = {"container", "megatron", "experiment"}
-        unknown_cache_key_fields = set(self.kernel_cache_key_fields) - allowed_cache_key_fields
-        if unknown_cache_key_fields:
+    def _resolve_megatron_source(self, d: dict[str, Any]) -> None:
+        """Split megatron_path into a local checkout or a URL plus its cache keys."""
+        container_path = str(d.get("megatron_container_path") or "").rstrip("/")
+        if (
+            not container_path.startswith("/")
+            or container_path == ""
+            or ".." in container_path.split("/")
+            or re.fullmatch(r"/[A-Za-z0-9_./-]+", container_path) is None
+            or len([part for part in container_path.split("/") if part]) < 2
+        ):
             raise ValueError(
-                f"Unsupported kernel_cache_key_fields: {sorted(unknown_cache_key_fields)}"
+                "MegatronExperiment.megatron_container_path must be a shell-safe absolute path with at least two components"
             )
+        d["megatron_container_path"] = container_path
+
+        megatron_source = str(d.get("megatron_path") or "")
+        if _is_megatron_url(megatron_source):
+            d["megatron_url"] = megatron_source
+            d["megatron_path"] = ""
+            d["megatron_cache_key"] = hashlib.sha256(
+                megatron_source.encode()
+            ).hexdigest()[:16]
+        else:
+            d["megatron_url"] = ""
+            d["megatron_cache_key"] = ""
+        # Source and commit together, so two pins of one repo get separate worktrees.
+        d["megatron_worktree_key"] = hashlib.sha256(
+            f"{megatron_source}\0{d.get('megatron_commit') or ''}".encode()
+        ).hexdigest()[:16]
+
+    def _validate_pre_launch(self) -> None:
+        """Reject settings that would otherwise fail silently or loop forever."""
+        unknown = set(self.kernel_cache_key_fields) - {
+            "container",
+            "megatron",
+            "experiment",
+        }
+        if unknown:
+            raise ValueError(f"Unsupported kernel_cache_key_fields: {sorted(unknown)}")
         if self.kernel_cache and not (
             self.kernel_cache_key_fields or self.kernel_cache_key_values
         ):
-            raise ValueError("kernel cache key must contain at least one field or value")
+            raise ValueError(
+                "kernel cache key must contain at least one field or value"
+            )
         if self.kernel_cache_warmup_steps is not None:
             if not self.kernel_cache:
                 raise ValueError("kernel_cache_warmup_steps requires kernel_cache=True")
-            if self.kernel_cache_warmup_steps <= 0:
-                raise ValueError("kernel_cache_warmup_steps must be greater than zero")
+            # The warmup run exits early on purpose; requeueing it would loop forever.
             if self.auto_requeue:
                 raise ValueError("kernel cache warmup cannot use auto_requeue")
-            training_args = self._remove_training_arg(
-                d.get("training_args") or [], "--exit-interval"
-            )
-            global_batch_size = int(d.get("gbs") or d.get("global_batch_size") or 0)
-            if global_batch_size:
-                training_args = [
-                    *self._remove_training_arg(training_args, "--train-samples"),
-                    "--train-samples",
-                    self.kernel_cache_warmup_steps * global_batch_size,
-                ]
-            d["training_args"] = [
-                *training_args,
-                "--exit-interval",
-                self.kernel_cache_warmup_steps,
+        if (
+            self.vetnode
+            and self.vetnode_config
+            and not Path(self.vetnode_config).is_file()
+        ):
+            raise ValueError(f"vetnode_config not found: {self.vetnode_config}")
+
+    def _apply_kernel_cache_warmup(self, d: dict[str, Any]) -> None:
+        """Cut the run short so it only populates the Triton/TorchInductor caches.
+
+        Replaces --exit-interval with the warmup step count, and --train-samples with
+        just enough samples to reach it, so the job stops once the caches are warm.
+        """
+        if self.kernel_cache_warmup_steps is None:
+            return
+        training_args = self._remove_training_arg(
+            d.get("training_args") or [], "--exit-interval"
+        )
+        global_batch_size = int(d.get("gbs") or d.get("global_batch_size") or 0)
+        if global_batch_size:
+            training_args = [
+                *self._remove_training_arg(training_args, "--train-samples"),
+                "--train-samples",
+                self.kernel_cache_warmup_steps * global_batch_size,
             ]
-        if self.kernel_cache_sync_timeout <= 0:
-            raise ValueError("kernel_cache_sync_timeout must be greater than zero")
-        if self.node_health_gate_timeout <= 0:
-            raise ValueError("node_health_gate_timeout must be greater than zero")
-        if self.node_health_gate_max_excluded_nodes <= 0:
-            raise ValueError("node_health_gate_max_excluded_nodes must be greater than zero")
+        d["training_args"] = [
+            *training_args,
+            "--exit-interval",
+            self.kernel_cache_warmup_steps,
+        ]
+
+    def render(
+        self,
+        experiment: Experiment,
+        generated_data_args_path: str | Path | None = None,
+    ) -> str:
+        """Render the Jinja2 template for a single experiment. Returns the script string."""
+        env = Environment(
+            loader=FileSystemLoader([str(_TEMPLATES_DIR), str(_SHARED_TEMPLATES_DIR)]),
+            undefined=StrictUndefined,
+            keep_trailing_newline=True,
+        )
+        tmpl = env.get_template(self._template_name())
+
+        d = experiment.to_dict()
+        kernel_cache_experiment_hash = hashlib.sha256(
+            json.dumps(d, sort_keys=True, default=str, separators=(",", ":")).encode()
+        ).hexdigest()
+        self._resolve_megatron_source(d)
+        self._resolve_data_paths(d, experiment, generated_data_args_path)
+
+        self._validate_pre_launch()
+        self._apply_kernel_cache_warmup(d)
 
         d["training_args_lines"] = self._format_training_args_lines(
             d.get("training_args") or []
@@ -395,9 +447,7 @@ class SlurmBackend:
         )
         env_vars: dict = d.get("env_vars") or {}
         pythonpath_parts = [
-            str(env_vars[var])
-            for var in self.pythonpath_env_vars
-            if env_vars.get(var)
+            str(env_vars[var]) for var in self.pythonpath_env_vars if env_vars.get(var)
         ]
         srun_export_vars = ",".join(
             dict.fromkeys(_SRUN_INFRA_EXPORTS + list(env_vars.keys()))
@@ -429,13 +479,18 @@ class SlurmBackend:
             "dependency_singleton": self.dependency_singleton,
             "auto_requeue": self.auto_requeue,
             "auto_requeue_stop_regex": self.auto_requeue_stop_regex,
-            "node_health_gate": self.node_health_gate,
-            "node_health_gate_timeout": self.node_health_gate_timeout,
-            "node_health_gate_max_excluded_nodes": self.node_health_gate_max_excluded_nodes,
-            "node_health_gate_key": hashlib.sha256(experiment.name.encode()).hexdigest()[:16],
-            "auto_requeue_stop_regex_shell": shlex.quote(
-                self.auto_requeue_stop_regex
-            ),
+            "auto_requeue_stop_mode": "regex",
+            "vetnode_max_excluded_nodes": self.vetnode_max_excluded_nodes,
+            "vetnode_key": hashlib.sha256(experiment.name.encode()).hexdigest()[:16],
+            "vetnode": self.vetnode,
+            "vetnode_config": self.vetnode_config
+            or str(_SHARED_TEMPLATES_DIR / "vetnode-config.yaml"),
+            "vetnode_install": self.vetnode_install,
+            "vetnode_skip_install": self.vetnode_skip_install,
+            "vetnode_verbose": self.vetnode_verbose,
+            "vetnode_numa_bind": self.numa_bind,
+            "vetnode_exclude": self.vetnode_exclude,
+            "auto_requeue_stop_regex_shell": shlex.quote(self.auto_requeue_stop_regex),
             "srun_job_id": self.srun_job_id,
             "launch_mode": self.launch_mode,
             "numa_bind": self.numa_bind,
@@ -497,9 +552,7 @@ class SlurmBackend:
                 and not exp_dict.get("data_args_path")
             ):
                 generated_data_args_path = out / f"{exp.name}.data_args.txt"
-            script = self.render(
-                exp, generated_data_args_path=generated_data_args_path
-            )
+            script = self.render(exp, generated_data_args_path=generated_data_args_path)
             path = out / f"{exp.name}.sh"
             if self.no_save:
                 print(f"# --- {path} (no_save, not written) ---")

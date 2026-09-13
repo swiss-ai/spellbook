@@ -56,9 +56,7 @@ class DataPathTest(unittest.TestCase):
         for backend in backends:
             with self.subTest(template=backend._template_name()):
                 script = backend.render(experiment)
-                copy_position = script.index(
-                    "cp -R --no-preserve=all"
-                )
+                copy_position = script.index("cp -R --no-preserve=all")
                 self.assertGreater(copy_position, script.index("srun \\"))
                 self.assertIn(
                     'export MEGATRON_PATH="${MEGATRON_CONTAINER_PATH}"', script
@@ -145,35 +143,32 @@ class DataPathTest(unittest.TestCase):
         export_line = next(line for line in script.splitlines() if "--export=" in line)
         self.assertNotIn("PYTHONPATH", export_line)
 
-    def test_node_health_gate_is_self_contained_and_batch_only(self) -> None:
+    def test_vetnode_uses_one_task_per_gpu_with_numa_binding(self) -> None:
         experiment = _experiment(
             megatron_path="/source/Megatron-LM", data_path="/data/prefix"
         )
 
-        for mode in ("torchrun", "tasks"):
-            with self.subTest(mode=mode):
-                script = _container_backend(
-                    launch_mode=mode, node_health_gate=True
-                ).render(experiment)
-                self.assertIn("Pre-launch node health gate", script)
-                self.assertIn("torch.distributed", script)
-                self.assertIn("--kill-on-bad-exit=1", script)
-                self.assertNotIn("--gpus-per-task=1", script)
-                self.assertNotIn("--export=ALL", script)
-                self.assertIn("--container-env=MASTER_ADDR", script)
-                self.assertIn(
-                    'SPELLBOOK_HEALTH_JOB_DIR="${SPELLBOOK_HEALTH_JOB_DIR}"', script
-                )
-                self.assertLess(
-                    script.index("Pre-launch node health gate"),
-                    script.index("# --- Auto-requeue ---"),
-                )
-                subprocess.run(["bash", "-n"], input=script, text=True, check=True)
-
-        script = _container_backend(
-            srun_job_id="123", node_health_gate=True
+        script = SlurmBackend(
+            account="test",
+            partition="test",
+            nodes=2,
+            gpus_per_node=4,
+            run_time="00:05:00",
+            extra={"container_edf": "test-container"},
+            vetnode=True,
+            vetnode_install="",
         ).render(experiment)
-        self.assertNotIn("Pre-launch node health gate", script)
+
+        self.assertIn("# --- Pre-launch vetnode gate ---", script)
+        self.assertIn("SPELLBOOK_VETNODE_TASKS_PER_NODE=4", script)
+        self.assertIn('--ntasks-per-node="${SPELLBOOK_VETNODE_TASKS_PER_NODE}"', script)
+        self.assertIn('numactl --cpunodebind="${SLURM_LOCALID}"', script)
+        self.assertIn("vetnode diagnose", script)
+        self.assertLess(
+            script.index("# --- Pre-launch vetnode gate ---"),
+            script.index("# --- Auto-requeue ---"),
+        )
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
 
     def test_theoretical_memory_uses_megatron_report_tool(self) -> None:
         experiment = _experiment(
@@ -216,7 +211,7 @@ class DataPathTest(unittest.TestCase):
         script = _container_backend().render(experiment)
         worktree_key = hashlib.sha256(f"{url}\0abc123".encode()).hexdigest()[:16]
 
-        self.assertIn('fetch origin --tags --prune', script)
+        self.assertIn("fetch origin --tags --prune", script)
         self.assertIn(f"megatron_worktrees/{worktree_key}", script)
 
     def test_task_mode_serializes_install_commands_per_node(self) -> None:
@@ -247,12 +242,14 @@ class DataPathTest(unittest.TestCase):
             'SPELLBOOK_KERNEL_CACHE_ROOT="${SCRATCH:-/iopsstor/scratch/cscs/$USER}/tmp/spellbook/kernel-cache"',
             script,
         )
-        self.assertIn('container=${SPELLBOOK_KERNEL_CACHE_CONTAINER}', script)
-        self.assertIn('megatron=${MEGATRON_GIT_COMMIT:-unknown}', script)
+        self.assertIn("container=${SPELLBOOK_KERNEL_CACHE_CONTAINER}", script)
+        self.assertIn("megatron=${MEGATRON_GIT_COMMIT:-unknown}", script)
         self.assertIn('printf "%s\\n" "experiment=', script)
-        self.assertIn('SPELLBOOK_LOCAL_CACHE_ROOT="/tmp/spellbook-kernel-cache/', script)
+        self.assertIn(
+            'SPELLBOOK_LOCAL_CACHE_ROOT="/tmp/spellbook-kernel-cache/', script
+        )
         self.assertIn('export TRITON_CACHE_DIR="${TRITON_HOME}/cache"', script)
-        self.assertIn('export TORCHINDUCTOR_CACHE_DIR=', script)
+        self.assertIn("export TORCHINDUCTOR_CACHE_DIR=", script)
         self.assertIn('touch "${SPELLBOOK_KERNEL_CACHE_PATH}/.complete"', script)
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
 
@@ -271,7 +268,7 @@ class DataPathTest(unittest.TestCase):
             kernel_cache_warmup_steps=6,
         ).render(experiment)
 
-        self.assertIn('megatron=${MEGATRON_GIT_COMMIT:-unknown}', script)
+        self.assertIn("megatron=${MEGATRON_GIT_COMMIT:-unknown}", script)
         self.assertIn("--exit-interval 6", script)
         self.assertIn("--train-samples 48", script)
         self.assertNotIn("--exit-interval 100", script)
@@ -299,7 +296,9 @@ class DataPathTest(unittest.TestCase):
                 auto_requeue=True,
             ).render(experiment)
 
-    def test_task_mode_can_profile_selected_launcher_ranks_with_custom_nsys_args(self) -> None:
+    def test_task_mode_can_profile_selected_launcher_ranks_with_custom_nsys_args(
+        self,
+    ) -> None:
         experiment = _experiment(
             megatron_path="/source/Megatron-LM",
             data_path="/data/prefix",
@@ -388,12 +387,12 @@ class DataPathTest(unittest.TestCase):
             megatron_path="/source/Megatron-LM", data_path="/data/prefix"
         )
 
-        disabled_regex = _backend(
-            auto_requeue=True, auto_requeue_stop_regex=""
-        ).render(experiment)
-        without_requeue = _backend(
-            auto_requeue_stop_regex="training finished"
-        ).render(experiment)
+        disabled_regex = _backend(auto_requeue=True, auto_requeue_stop_regex="").render(
+            experiment
+        )
+        without_requeue = _backend(auto_requeue_stop_regex="training finished").render(
+            experiment
+        )
 
         self.assertNotIn("grep -Eq --", disabled_regex)
         self.assertNotIn("grep -Eq --", without_requeue)

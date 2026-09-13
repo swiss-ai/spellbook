@@ -109,6 +109,8 @@ mkdir -p {{ log_dir }}/{{ model_name }}
 
 export OUTPUT_DIR="{{ suite_output_dir }}"
 
+{% include "vetnode_gate.sh.j2" %}
+
 srun \
 {%- if cpus_per_task %}
   --cpus-per-task={{ cpus_per_task }} \

@@ -1,0 +1,79 @@
+# Default vetnode configuration for Alps GH200 nodes.
+# Adapted from eth-cscs/alps-extended-images ci-pipelines/helpers/vetnode-config.yaml.
+# Point NodeHealthConfig.vetnode_config at your own copy to change the checks.
+name: spellbook node vetting
+scheduler: slurm
+
+pip:
+  index_url: "https://jfrog.svc.cscs.ch/artifactory/api/pypi/pypi-remote/simple"
+
+evals:
+  # The Slingshot/NCCL settings a job must actually be running with. A node that
+  # silently lost one of these produces a slow job rather than a failed one.
+  - name: Environment Variables
+    type: vetnode.evaluations.env_var_eval.EnvVarEval
+    expected:
+      CUDA_CACHE_DISABLE: "1"
+      NCCL_NET: "AWS Libfabric"
+      NCCL_CROSS_NIC: "0"
+      NCCL_NET_GDR_LEVEL: "PHB"
+      FI_PROVIDER: "cxi"
+      FI_CXI_DISABLE_HOST_REGISTER: "1"
+      FI_CXI_RDZV_PROTO: "alt_read"
+      FI_CXI_RX_MATCH_MODE: "hybrid"
+      FI_MR_CACHE_MONITOR: "userfaultfd"
+
+  - name: GPU
+    type: vetnode.evaluations.gpu_eval.GPUEval
+    max_temp: 30
+    max_used_memory: 0.2
+
+  - name: CudaKernel
+    type: vetnode.evaluations.cuda_eval.CUDAEval
+    cuda_home: /usr/local/cuda
+    requirements:
+      - cuda-python==13.*
+      - numpy
+
+  # min_bandwidth is the reason to run these at all: they fail a node that works but
+  # is slow, which a pass/fail collective probe cannot detect. Thresholds are the
+  # ones CSCS gates their own image CI on.
+  # NVLink within a node.
+  - name: NCCL-Low-Level-Intranode
+    type: vetnode.evaluations.nccl_lib_eval.NcclLibEval
+    topology: intranode
+    scheduler: slurm
+    payload: 8 GB
+    method: allreduce
+    min_bandwidth: 250 GB/s
+    warmup:
+      payload: 8 GB
+      runs: 3
+    requirements: ["cuda-python", "numpy"]
+
+  # Slingshot between nodes. Needs more than one node in the allocation; drop this
+  # entry and the next for single-node jobs.
+  - name: NCCL-Low-Level-Internode
+    type: vetnode.evaluations.nccl_lib_eval.NcclLibEval
+    topology: internode
+    scheduler: slurm
+    payload: 8 GB
+    method: allreduce
+    min_bandwidth: 15 GB/s
+    warmup:
+      payload: 8 GB
+      runs: 3
+    requirements: ["cuda-python", "numpy"]
+
+  # No topology filter: every rank in the allocation, which is what a real training
+  # step actually does.
+  - name: NCCL-Low-Level-Full-Topology
+    type: vetnode.evaluations.nccl_lib_eval.NcclLibEval
+    scheduler: slurm
+    payload: 8 GB
+    method: allreduce
+    min_bandwidth: 50 GB/s
+    warmup:
+      payload: 8 GB
+      runs: 3
+    requirements: ["cuda-python", "numpy"]
