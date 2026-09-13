@@ -1,0 +1,77 @@
+#!/bin/bash
+# Rendered by tools/gym_data — do not edit by hand.
+# Owns only the Slurm/container boundary; prepare.py does the work and runs inside
+# the container. No GPU is needed, and every step is skipped when its output exists.
+#SBATCH --job-name={{ name }}
+#SBATCH --account={{ account }}
+#SBATCH --partition={{ partition }}
+{%- if reservation %}
+#SBATCH --reservation={{ reservation }}
+{%- endif %}
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task={{ cpus_per_task }}
+#SBATCH --time={{ run_time }}
+#SBATCH --output={{ log_dir }}/%x-%j.out
+#SBATCH --error={{ log_dir }}/%x-%j.err
+
+set -euxo pipefail
+ulimit -c 0
+
+srun \
+  --kill-on-bad-exit=1 \
+  --cpus-per-task={{ cpus_per_task }} \
+{%- if container %}
+  --environment="{{ container }}" \
+{%- endif %}
+{%- if container_mounts %}
+  --container-mounts="{{ container_mounts }}" \
+{%- endif %}
+  --container-workdir="{{ nemo_rl_path }}" \
+  --network=disable_rdzv_get \
+  -u bash -lc 'exec python "$@"' _ "{{ prepare_script }}" \
+    --gym-home "{{ gym_home }}" \
+    --nemo-rl-path "{{ nemo_rl_path }}" \
+{%- for path in config_paths %}
+    --config-path "{{ path }}" \
+{%- endfor %}
+    --venv-dir "{{ venv_dir }}" \
+    --nemo-rl-venv-dir "{{ nemo_rl_venv_dir }}" \
+    --uv-cache-dir "{{ uv_cache_dir }}" \
+    --scratch-root "{{ scratch_root }}" \
+    --output-dir "{{ output_dir }}" \
+{%- if dataset_name %}
+    --dataset-name "{{ dataset_name }}" \
+{%- endif %}
+{%- if grading_mode %}
+    --grading-mode "{{ grading_mode }}" \
+{%- endif %}
+{%- if validation_rows %}
+    --validation-rows {{ validation_rows }} \
+{%- endif %}
+{%- if prefetch_config %}
+    --prefetch-config "{{ prefetch_config }}" \
+{%- endif %}
+{%- if not build_venvs %}
+    --no-build-venvs \
+{%- endif %}
+    ;
+
+{% if squashfs %}
+# mksquashfs is supplied by the Alps host, not the application container.
+# Build to a temporary image so an interrupted job never leaves a false-positive
+# artifact that the next idempotent run would accept.
+if [[ -s "{{ squashfs }}" ]]; then
+  echo "[gym] squashfs present: {{ squashfs }}"
+else
+  mkdir -p "$(dirname "{{ squashfs }}")"
+  _squashfs_tmp="{{ squashfs }}.tmp.${SLURM_JOB_ID}"
+  rm -f "$_squashfs_tmp"
+  trap 'rm -f "$_squashfs_tmp"' EXIT
+  mksquashfs "{{ venv_dir }}" "$_squashfs_tmp" \
+    -no-recovery -noappend -Xcompression-level 3
+  mv "$_squashfs_tmp" "{{ squashfs }}"
+  trap - EXIT
+  echo "[gym] packed {{ squashfs }}"
+fi
+{% endif %}

@@ -53,8 +53,8 @@ Notable changes to Spellbook are documented here.
 
 - Megatron auto-requeue uses shared backend templates that support both
   log-regex completion and NeMo-RL checkpoint-step completion.
-- Scheduler and Ray launcher logs for NeMo-RL default to
-  `$SCRATCH/tmp/spellbook/nemorl/slurm_logs` instead of the source checkout.
+- Scheduler and Ray launcher logs for NeMo-RL, plus NeMo Gym preparation logs,
+  default below `$SCRATCH/tmp/spellbook/nemorl` instead of the source checkout.
 - NeMo Gym environments are prepared outside training and mounted directly at
   their expected paths, so training jobs only consume immutable prepared
   artifacts.
