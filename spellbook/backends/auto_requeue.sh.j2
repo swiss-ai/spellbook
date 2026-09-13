@@ -1,0 +1,25 @@
+{% if auto_requeue %}
+# --- Auto-requeue ---
+# Queue the successor BEFORE the work, so a walltime kill still continues the chain.
+# A constant --job-name plus --dependency=singleton serialises the links.
+# Stop mode is regex (grep a completion marker afterwards, then cancel the
+# successor) or checkpoint_steps (never queue one once the target is reached).
+{% if auto_requeue_stop_mode == "checkpoint_steps" %}
+AUTO_REQUEUE_LAST=$(ls -d "{{ auto_requeue_checkpoint_dir }}"/step_* 2>/dev/null \
+  | sed 's/.*step_//' | sort -n | tail -1)
+AUTO_REQUEUE_LAST=${AUTO_REQUEUE_LAST:-0}
+echo "[$(date)] auto-requeue: last completed step = ${AUTO_REQUEUE_LAST}"
+if [[ "${AUTO_REQUEUE_LAST}" -lt {{ auto_requeue_target_steps }} ]]; then
+  AUTO_REQUEUE_SUBMISSION="$(sbatch --parsable --dependency=singleton{% if reservation %} --reservation={{ reservation }}{% endif %} "$0")"
+  AUTO_REQUEUE_JOB_ID="${AUTO_REQUEUE_SUBMISSION%%;*}"
+  echo "[$(date)] auto-requeued job ${AUTO_REQUEUE_JOB_ID}"
+else
+  echo "[$(date)] auto-requeue: {{ auto_requeue_target_steps }} steps reached, stopping."
+  exit 0
+fi
+{% else %}
+AUTO_REQUEUE_SUBMISSION="$(sbatch --parsable --dependency=singleton{% if reservation %} --reservation={{ reservation }}{% endif %} "$0")"
+AUTO_REQUEUE_JOB_ID="${AUTO_REQUEUE_SUBMISSION%%;*}"
+echo "[$(date)] auto-requeued job ${AUTO_REQUEUE_JOB_ID}"
+{% endif %}
+{% endif %}

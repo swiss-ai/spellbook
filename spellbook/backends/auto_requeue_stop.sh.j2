@@ -1,0 +1,12 @@
+{% if auto_requeue and auto_requeue_stop_mode == "regex" %}
+# Cancel the successor queued before the work if this job actually finished.
+# checkpoint_steps mode needs nothing here: it never queued one.
+set +x
+AUTO_REQUEUE_STDOUT="$(scontrol show job "$SLURM_JOB_ID" -o | sed -n 's/.* StdOut=\([^ ]*\).*/\1/p')"
+if [[ -n "${AUTO_REQUEUE_JOB_ID}" && -n "${AUTO_REQUEUE_STDOUT}" ]] && \
+    grep -Eq -- {{ auto_requeue_stop_regex_shell }} "${AUTO_REQUEUE_STDOUT}"; then
+  echo "[$(date)] completion matched; cancelling auto-requeued job ${AUTO_REQUEUE_JOB_ID}"
+  scancel "${AUTO_REQUEUE_JOB_ID}" || true
+fi
+set -x
+{% endif %}
