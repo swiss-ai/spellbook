@@ -302,7 +302,7 @@ def _render_checkpoints(
     )
     ctx["ckpt_step"] = checkpoint_label
 
-    ctx["date"] = datetime.now().strftime("%Y-%m-%d")
+    ctx["date"] = datetime.now().astimezone().strftime("%Y-%m-%d")
     ctx["dependency_singleton"] = dependency_singleton
     ctx["ntasks_per_node"] = cfg.gpus_per_node if cfg.launch_mode == "tasks" else 1
     ctx["total_tasks"] = cfg.nodes * ctx["ntasks_per_node"]

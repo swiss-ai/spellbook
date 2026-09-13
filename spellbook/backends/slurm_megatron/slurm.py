@@ -163,6 +163,7 @@ class SlurmBackend:
                 ["git", "-C", str(p), "rev-parse", "--is-inside-work-tree"],
                 capture_output=True,
                 text=True,
+                check=False,
             ).returncode
             != 0
         ):
@@ -173,6 +174,7 @@ class SlurmBackend:
                 ["git", "-C", str(p), *args],
                 capture_output=True,
                 text=True,
+                check=False,
             )
             if result.returncode != 0:
                 return "unknown"
@@ -188,7 +190,7 @@ class SlurmBackend:
 
     def _resolve_path_env_value(self, name: str, d: dict[str, Any]) -> str:
         exp_env = d.get("env_vars") or {}
-        if name in exp_env and exp_env[name]:
+        if exp_env.get(name):
             return str(exp_env[name])
         return ""
 
@@ -239,7 +241,7 @@ class SlurmBackend:
                 continue
             seen.add(key)
 
-            base = label[:-5] if label.endswith("_PATH") else label
+            base = label.removesuffix("_PATH")
             meta = self._git_metadata(path)
             env_vars.setdefault(f"{base}_GIT_BRANCH", meta.get("branch", "unknown"))
             env_vars.setdefault(f"{base}_GIT_COMMIT", meta.get("commit", "unknown"))
@@ -613,7 +615,7 @@ class SlurmBackend:
         if self.reservation:
             cmd += [f"--reservation={self.reservation}"]
         cmd.append(script_path)
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if result.returncode != 0:
             raise RuntimeError(
                 f"sbatch failed (exit {result.returncode}):\n{result.stderr.strip()}"
