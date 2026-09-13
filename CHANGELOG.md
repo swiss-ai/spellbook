@@ -71,6 +71,8 @@ Notable changes to Spellbook are documented here.
 
 - Exported the resolved Ray head address and shared lifecycle markers into
   NeMo-RL containers so multi-node workers and the driver join the same cluster.
+- Applied `SlurmNemoRLBackend.srun_extra_args` to batch launches as well as
+  existing-allocation launches, and removed unused launch configuration fields.
 - Corrected NeMo-RL data-parallel validation to divide by tensor, pipeline, and
   context parallelism rather than expert parallelism.
 - Made NeMo Gym preparation rebuild incomplete actor environments and create

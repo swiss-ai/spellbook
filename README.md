@@ -317,6 +317,7 @@ Important fields:
 - `kernel_cache_warmup_steps=6`: turn the job into a short cache-building run by replacing `--exit-interval`; this requires `kernel_cache=True` and cannot be combined with auto-requeue. A repeated warmup exits immediately when the matching persistent cache already exists.
 - `kernel_cache_root`: persistent cache location. It defaults to `${SCRATCH}/tmp/spellbook/kernel-cache`, falling back to `/iopsstor/scratch/cscs/$USER/tmp/spellbook/kernel-cache` when `SCRATCH` is unset.
 - `reservation`: added to sbatch header and sbatch invocation.
+- `vetnode=True`: run CSCS [vetnode](https://docs.cscs.ch/running/vetnode/) across the allocation before the workload starts, one task per GPU with local-rank NUMA binding. Available on `SlurmBackend`, `MegatronEvalConfig` and `SlurmNemoRLBackend`. Checks environment variables, GPU health, a CUDA kernel, and NCCL bandwidth (intranode/internode/full-topology) against `min_bandwidth` thresholds, so it catches a node that works but is slow. `vetnode_config` overrides the shipped [`spellbook/backends/vetnode-config.yaml`](spellbook/backends/vetnode-config.yaml); the internode and full-topology checks need more than one node. With `vetnode_exclude=True` (the default for training, off for evals) failing nodes are added to a persistent exclusion list and the job resubmits without them; otherwise the job fails.
 - `auto_requeue=True`: submit a singleton-dependent successor before training starts.
 - `auto_requeue_stop_regex`: an extended regular expression checked against the completed job's Slurm stdout log. It defaults to Megatron's normal-completion marker, `r"\[after training is done\] datetime:"`. When it matches, Spellbook cancels the successor submitted by `auto_requeue`, allowing an auto-requeue chain to stop after training finishes. Set it to `""` to disable the completion check or override it for another trainer.
 - `MegatronExperiment.pre_launch_commands`: raw shell commands inserted into `slurm.sh.j2` before the main training `srun`. Use this for setup that needs to run once per job, including a separate one-task setup `srun`.
@@ -326,11 +327,36 @@ Important fields:
 - `MegatronExperiment.data_args_path`: use an existing Megatron data-path manifest without discovery. Configuring it suppresses the missing-data warning. Explicit `data_path` takes precedence over `data_args_path`, and `data_args_path` takes precedence over `base_data_path`.
 - `MegatronEvalConfig.megatron_path`: uses the same container-local `/opt` copy behavior for evaluation jobs.
 - `MegatronEvalConfig.install_commands`: raw shell commands run once per node inside the eval `srun` shell before `lm_eval` starts; sibling ranks wait for the local install to finish. Use this for per-eval package installation.
+- `NemoRLExperiment.algorithm`: selects the entrypoint and the top-level recipe key. The backend emits the rollout counts and `policy.generation` only for algorithms that generate (`SlurmNemoRLBackend.GENERATION_ALGORITHMS`: grpo, ppo, distillation), so `sft`/`dpo`/`rm` render a correct minimal block and take their own keys from `base_config` or `recipe_overrides`. On-policy distillation (MOPD) runs as `algorithm="grpo"` with a top-level `on_policy_distillation` block.
+- `NemoRLExperiment.entrypoint`: path to the script the driver runs, relative to `nemo_rl_path` unless absolute. Defaults to `examples/run_<algorithm>.py`, or the NeMo Gym variant when `gym_config_paths` is set. Set it to reach the run_*.py variants the `<algorithm>` convention cannot name — `run_grpo_single_controller.py`, `run_vlm_grpo.py`, `run_xtoken_off_policy_distillation.py`.
+- `NemoRLExperiment.install_commands`: raw shell commands run inside the container before the Ray head starts. One task per node runs the NeMo-RL launch script, so no sibling-rank barrier is needed. Use this to try a package before adding it to the `nemo-rl` container image.
+- `SlurmNemoRLBackend.log_dir`: scheduler and Ray-launch logs. It defaults to `$SCRATCH/tmp/spellbook/nemorl/slurm_logs`, keeping runtime output outside the Spellbook checkout.
+- `SlurmNemoRLBackend.srun_extra_args`: extra Slurm arguments used by both batch and existing-allocation launches. It defaults to `--network=disable_rdzv_get --mpi=pmix` on Alps.
 - `MegatronEvalConfig.eval_runs`: optional `LMEvalRunConfig` entries with per-run tasks, lm-eval overrides, environments, outputs, and WandB names/IDs. `submit_evaluations()` independently groups checkpoints and runs into shared or separate allocations.
 - `HFConversionConfig`: submits a local or Git-backed hfconverter checkout's Stage-2 CLI, using refreshed locked caches and commit-specific worktrees for URLs, and reusing completed HF outputs unless explicit recreation is requested.
 - `VLLMEvalConfig`: experimental and not correctly implemented end to end; do not treat it as a functional evaluation path yet. The intended interface uses lm-evaluation-harness's standard `--model vllm` backend against an HF model and is documented in [`evals/README.md`](evals/README.md#vllm).
 
 `srun_extra_args` is not the same as `extra`.
+
+### NeMo-RL example
+
+[`experiments/nemorl_gym_example/`](experiments/nemorl_gym_example/README.md) is a worked two-node GRPO run through NeMo Gym: `prepare_data.py` builds the Gym venvs and dataset once, `experiment.py` trains against them.
+
+## Container images
+
+[`containers/`](containers/) holds container definitions laid out as
+[`eth-cscs/alps-extended-images`](https://github.com/eth-cscs/alps-extended-images)
+application images, so each directory can be copied straight into that repository's
+`Alps-Images/apps/`.
+
+- [`containers/nemo-rl`](containers/nemo-rl/README.md): the NeMo-RL image for
+  `spellbook.nemorl`. It carries the megachonk kernel pin set (TransformerEngine 2.17,
+  UCCL-EP, DeepGEMM, grouped_gemm, Emerging-Optimizers, flash-linear-attention 0.5.2)
+  plus the full NeMo-RL runtime stack, so `NemoRLExperiment.overlay_paths` can be empty.
+  NeMo-RL, Megatron-Bridge and Megatron-LM are not vendored; bind-mount those checkouts.
+
+The upstream pipeline appends its own Alps revision to the base image named in
+`profile.env`, so published tags follow that pipeline rather than this repository.
 
 ## Tools
 
@@ -388,6 +414,10 @@ submit(MegatronCheckpointMergeConfig(
 ```
 
 See [`tools/merge/README.md`](tools/merge/README.md) for container and backend options.
+
+### NeMo Gym environment preparation
+
+[`tools/gym_data/`](tools/gym_data/README.md) prepares a Gym environment once — the per-server uv venvs, the NemoGym Ray actor venv, and the collated dataset — on CPU, outside any training job. `SlurmNemoRLBackend` then only points at the result and fails fast if it is missing, so a training run never builds venvs or rewrites datasets. Optional `grading_mode` stamping and `validation_rows` splitting are off by default and always derive from an immutable copy of what `gym dataset collate` produced. Preparation logs default below `$SCRATCH/tmp/spellbook/nemorl/gym_data`.
 
 ## Locking experiments
 
@@ -475,6 +505,15 @@ tools/
 experiments/
   big_moe_speed_ablations/
   big_moe_speed_ablations_example/
+  nemorl_gym_example/
+    prepare_data.py
+    experiment.py
+containers/
+  nemo-rl/
+    Containerfile
+    profile.env
+    ci.yaml
+    tests/
 main.py
 ```
 
