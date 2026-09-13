@@ -71,9 +71,7 @@ class Experiment:
 
         locks_dir.mkdir(parents=True, exist_ok=True)
         path = locks_dir / f"{self.name}.lock.yaml"
-        current = {
-            k: v for k, v in self.to_dict().items() if k not in self._lock_exclude
-        }
+        current = {k: v for k, v in self.to_dict().items() if k not in self._lock_exclude}
 
         if not path.exists():
             data = {
@@ -92,8 +90,7 @@ class Experiment:
             }
             if diffs:
                 lines = "\n".join(
-                    f"  {k}: locked={v[0]!r}  current={v[1]!r}"
-                    for k, v in sorted(diffs.items())
+                    f"  {k}: locked={v[0]!r}  current={v[1]!r}" for k, v in sorted(diffs.items())
                 )
                 raise RuntimeError(
                     f"Experiment '{self.name}' differs from its lock file ({path}):\n{lines}\n\n"

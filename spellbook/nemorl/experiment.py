@@ -29,9 +29,7 @@ from typing import Any, ClassVar
 from spellbook.core.experiment import Experiment
 
 # Concatenate message contents, no control tokens. Correct for base checkpoints.
-PASSTHROUGH_CHAT_TEMPLATE = (
-    "{% for message in messages %}{{ message['content'] }}{% endfor %}"
-)
+PASSTHROUGH_CHAT_TEMPLATE = "{% for message in messages %}{{ message['content'] }}{% endfor %}"
 
 
 @dataclasses.dataclass
@@ -92,9 +90,7 @@ class NemoRLExperiment(Experiment):
     context_parallel_size: int = 1
 
     # ---- generation ----
-    generation_backend: str = (
-        "megatron"  # megatron => no vLLM, no refit, no param mapping
-    )
+    generation_backend: str = "megatron"  # megatron => no vLLM, no refit, no param mapping
     temperature: float = 1.0
     top_p: float = 0.9  # never 1.0: that disables nucleus truncation
     top_k: int = 0  # 0 = disabled; 1 = greedy
@@ -184,9 +180,7 @@ class NemoRLExperiment(Experiment):
             )
         if self.gym_config_paths:
             if not self.gym_home:
-                raise ValueError(
-                    "gym_config_paths needs gym_home (the Gym checkout root)."
-                )
+                raise ValueError("gym_config_paths needs gym_home (the Gym checkout root).")
             if self.generation_backend != "megatron":
                 raise ValueError(
                     "the Gym integration drives the Megatron generation backend's HTTP "

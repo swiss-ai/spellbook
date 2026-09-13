@@ -70,8 +70,10 @@ class MegatronExperiment(Experiment):
     qk_head_dim: int | None = None
     qk_pos_emb_head_dim: int | None = None
     v_head_dim: int | None = None
-    rotary_scaling_factor: float | None = None # yarn (to use use MLA or rope_type="yarn")
-    rope_scaling_factor: float | None = None # llama3-style RoPE scaling (by default rope_type used is "rope" so llama 3)
+    rotary_scaling_factor: float | None = None  # yarn (to use use MLA or rope_type="yarn")
+    rope_scaling_factor: float | None = (
+        None  # llama3-style RoPE scaling (by default rope_type used is "rope" so llama 3)
+    )
     rope_type: str | None = None  # "rope" (default, in megatron when using None), "yarn"
     mscale: float | None = None
     mscale_all_dim: float | None = None
@@ -115,15 +117,15 @@ class MegatronExperiment(Experiment):
     cp: int = 1
     vpp: int | None = None
     pipeline_model_parallel_layout: str = ""
-    num_gpus: int | None = None   # drives dp derivation; not passed to Megatron
-    dp: int = 1                   # derived; not passed to Megatron directly
+    num_gpus: int | None = None  # drives dp derivation; not passed to Megatron
+    dp: int = 1  # derived; not passed to Megatron directly
     sequence_parallel: bool = True
     tp_comm_overlap: bool = False
 
     # --- Batch / schedule ---
     mbs: int = 1
     gbs: int = 0
-    train_tokens: int = 0         # converted to --train-samples = train_tokens // seq_length
+    train_tokens: int = 0  # converted to --train-samples = train_tokens // seq_length
     lr: float = 0.0
     min_lr: float = 0.0
     lr_decay_style: str = "cosine"
@@ -175,10 +177,10 @@ class MegatronExperiment(Experiment):
     #   "1.0 /path/a 2.0 /path/b"
     # Set data_args_path to use an existing manifest instead.
     # Explicit data_path takes precedence, followed by data_args_path.
-    base_data_path: str = ""   # comma-separated dirs; shards found via create_data_config.py
+    base_data_path: str = ""  # comma-separated dirs; shards found via create_data_config.py
     follow_symlinks: bool = False
-    data_path: str = ""        # explicit weighted data-path string (passed as-is to Megatron)
-    data_args_path: str = ""   # existing Megatron data-path manifest
+    data_path: str = ""  # explicit weighted data-path string (passed as-is to Megatron)
+    data_args_path: str = ""  # existing Megatron data-path manifest
     tokenizer_type: str = "HuggingFaceTokenizer"
     tokenizer_model: str = ""
     split: str = "100,0,0"
@@ -228,12 +230,13 @@ class MegatronExperiment(Experiment):
     cuda_graph_scope: list[str] = dataclasses.field(default_factory=list)
     te_rng_tracker: bool = False
 
-
     # --- Extra passthrough args ---
     extra_args: list[str] = dataclasses.field(default_factory=list)
 
     # --- torchrun flags ---
-    torchrun_standalone: bool = False  # passes --standalone to torchrun; useful for single-node runs
+    torchrun_standalone: bool = (
+        False  # passes --standalone to torchrun; useful for single-node runs
+    )
 
     # --- nsys profiling ---
     # When profile=True the template wraps the Python launch with nsys. In task
@@ -241,14 +244,14 @@ class MegatronExperiment(Experiment):
     # subset of global Slurm ranks; profile_ranks independently controls which
     # Megatron ranks call cudaProfilerStart/Stop.
     profile: bool = False
-    nsys_output: str = "nsys"              # directory for .nsys-rep files
-    profile_types: str = "cuda,nvtx"       # -t argument for the default command
+    nsys_output: str = "nsys"  # directory for .nsys-rep files
+    profile_types: str = "cuda,nvtx"  # -t argument for the default command
     profile_step_start: int = 5
     profile_step_end: int = 7
     profile_ranks: list[int] = dataclasses.field(default_factory=lambda: [0])
     nsys_launcher_ranks: list[int] | None = None  # None profiles every Slurm task
     nsys_profile_args: list[str] | None = None
-    nsys_tmpdir: str | None = None            # e.g. ${SLURM_TMPDIR:-/tmp}
+    nsys_tmpdir: str | None = None  # e.g. ${SLURM_TMPDIR:-/tmp}
     pytorch_nsys_profile: str = "none"
     python_sampling: bool = False
     nic_metrics: str = "none"
@@ -278,11 +281,16 @@ class MegatronExperiment(Experiment):
             )
 
         _SCHEDULE_FIELDS = {
-            "lr_warmup_iters", "lr_warmup_samples",
-            "lr_decay_samples", "lr_wsd_decay_iters",
-            "lr_decay_style", "train_tokens",
+            "lr_warmup_iters",
+            "lr_warmup_samples",
+            "lr_decay_samples",
+            "lr_wsd_decay_iters",
+            "lr_decay_style",
+            "train_tokens",
         }
-        if kwargs.get("override_opt_param_schedule", True) and not (_SCHEDULE_FIELDS & kwargs.keys()):
+        if kwargs.get("override_opt_param_schedule", True) and not (
+            _SCHEDULE_FIELDS & kwargs.keys()
+        ):
             warnings.warn(
                 f"resume_from({name!r}): --override-opt-param-schedule is set but no "
                 "schedule fields were changed (lr_warmup_iters, lr_wsd_decay_iters, "
@@ -354,9 +362,7 @@ class MegatronExperiment(Experiment):
                 raise ValueError(f"KDA parameter counting requires: {', '.join(missing)}")
             head_dim = h // self.num_attention_heads
             query_groups = self.num_query_groups or self.num_attention_heads
-            standard_attention = (
-                h * h + h * (2 * query_groups * head_dim) + h * h + 2 * head_dim
-            )
+            standard_attention = h * h + h * (2 * query_groups * head_dim) + h * h + 2 * head_dim
             standard_base = standard_attention + 4 * h
 
             key_head_dim = kda["linear_key_head_dim"]
@@ -370,11 +376,7 @@ class MegatronExperiment(Experiment):
             full_rank_gate = getattr(self, "linear_attention_full_rank_output_gate", False)
             output_gate_input = value_dim if full_rank_gate else low_rank_dim
             input_projection = (
-                2 * qk_dim
-                + value_dim
-                + low_rank_dim
-                + output_gate_input
-                + num_value_heads
+                2 * qk_dim + value_dim + low_rank_dim + output_gate_input + num_value_heads
             )
             kda_base = (
                 h * input_projection
@@ -390,8 +392,7 @@ class MegatronExperiment(Experiment):
             pattern = kda["linear_attention_freq"]
             if isinstance(pattern, int):
                 pattern = [
-                    0 if (index + 1) % pattern == 0 else 1
-                    for index in range(self.num_layers)
+                    0 if (index + 1) % pattern == 0 else 1 for index in range(self.num_layers)
                 ]
             if not isinstance(pattern, list) or len(pattern) != self.num_layers:
                 raise ValueError(
@@ -411,13 +412,13 @@ class MegatronExperiment(Experiment):
             qk_rope = self.qk_pos_emb_head_dim or 0
             v_dim = self.v_head_dim or 0
             attention_params = (
-                h * q_lora                    # W_DQ
-                + q_lora * nh * qk_dim        # W_UQ (nope part)
-                + q_lora * nh * qk_rope       # W_QR (rope part)
-                + h * kv_lora                 # W_DKV
-                + kv_lora * nh * qk_dim       # W_UK
-                + kv_lora * nh * v_dim        # W_UV
-                + nh * v_dim * h              # W_O
+                h * q_lora  # W_DQ
+                + q_lora * nh * qk_dim  # W_UQ (nope part)
+                + q_lora * nh * qk_rope  # W_QR (rope part)
+                + h * kv_lora  # W_DKV
+                + kv_lora * nh * qk_dim  # W_UK
+                + kv_lora * nh * v_dim  # W_UV
+                + nh * v_dim * h  # W_O
             )
             layer_base = attention_params + qk_ln_params + layernorm_params
             layer_bases = [layer_base] * self.num_layers
@@ -449,12 +450,18 @@ class MegatronExperiment(Experiment):
             base = layer_bases[layer_index]
             if is_moe:
                 layer_total = (
-                    base + router_params + num_experts * expert_params
-                    + shared_expert_params + latent_projection_params
+                    base
+                    + router_params
+                    + num_experts * expert_params
+                    + shared_expert_params
+                    + latent_projection_params
                 )
                 layer_active = (
-                    base + router_params + self.moe_router_topk * expert_params
-                    + shared_expert_params + latent_projection_params
+                    base
+                    + router_params
+                    + self.moe_router_topk * expert_params
+                    + shared_expert_params
+                    + latent_projection_params
                 )
             else:
                 layer_total = base + dense_ffn_params

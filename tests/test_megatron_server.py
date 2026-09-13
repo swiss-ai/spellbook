@@ -94,7 +94,7 @@ class DynamicServerTest(unittest.TestCase):
         self.assertNotIn("--nodes=", launch)
         self.assertNotIn("--ntasks=", launch)
         self.assertNotIn("--ntasks-per-node=", launch)
-        self.assertIn('${SLURM_NTASKS:-8}', script)
+        self.assertIn("${SLURM_NTASKS:-8}", script)
         self.assertIn('SERVER_HOSTS="$(hostname -I)"', script)
         self.assertIn('"--host"', script)
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)

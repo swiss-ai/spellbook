@@ -111,9 +111,7 @@ def _prepare_hfconverter(cfg: HFConversionConfig) -> Path:
         if repository.exists() and not (repository / ".git").is_dir():
             raise ValueError(f"hfconverter cache is not a Git repository: {repository}")
         if not repository.exists():
-            subprocess.run(
-                ["git", "clone", cfg.hfconverter_root, str(repository)], check=True
-            )
+            subprocess.run(["git", "clone", cfg.hfconverter_root, str(repository)], check=True)
         subprocess.run(
             ["git", "-C", str(repository), "fetch", "origin", "--tags", "--prune"],
             check=True,
@@ -187,9 +185,7 @@ def _validate(cfg: HFConversionConfig, root: Path) -> tuple[Path, Path, Path, Pa
         or resolved_output.is_relative_to(checkpoint)
         or checkpoint.is_relative_to(resolved_output)
     ):
-        raise ValueError(
-            "output and checkpoint directories must not contain one another"
-        )
+        raise ValueError("output and checkpoint directories must not contain one another")
     if output.exists() and not output.is_dir():
         raise ValueError(f"output path exists and is not a directory: {output}")
     if cfg.hfconverter_commit and not _is_git_url(cfg.hfconverter_root):

@@ -42,9 +42,7 @@ def _experiment(**kwargs: Any) -> MegatronExperiment:
 
 class DataPathTest(unittest.TestCase):
     def test_megatron_is_copied_inside_every_backend_launch_mode(self) -> None:
-        experiment = _experiment(
-            megatron_path="/source/Megatron-LM", data_path="/data/prefix"
-        )
+        experiment = _experiment(megatron_path="/source/Megatron-LM", data_path="/data/prefix")
         backends = [
             _container_backend(),
             _container_backend(launch_mode="tasks"),
@@ -58,14 +56,10 @@ class DataPathTest(unittest.TestCase):
                 script = backend.render(experiment)
                 copy_position = script.index("cp -R --no-preserve=all")
                 self.assertGreater(copy_position, script.index("srun \\"))
-                self.assertIn(
-                    'export MEGATRON_PATH="${MEGATRON_CONTAINER_PATH}"', script
-                )
+                self.assertIn('export MEGATRON_PATH="${MEGATRON_CONTAINER_PATH}"', script)
 
     def test_srun_inner_shell_propagates_training_pipeline_failures(self) -> None:
-        experiment = _experiment(
-            megatron_path="/source/Megatron-LM", data_path="/data/prefix"
-        )
+        experiment = _experiment(megatron_path="/source/Megatron-LM", data_path="/data/prefix")
 
         script = _container_backend(srun_job_id="123").render(experiment)
 
@@ -75,14 +69,10 @@ class DataPathTest(unittest.TestCase):
         self.assertIn("2>&1 | tee", script)
 
     def test_task_launch_can_skip_login_shell(self) -> None:
-        experiment = _experiment(
-            megatron_path="/source/Megatron-LM", data_path="/data/prefix"
-        )
+        experiment = _experiment(megatron_path="/source/Megatron-LM", data_path="/data/prefix")
 
         login = _container_backend(launch_mode="tasks").render(experiment)
-        plain = _container_backend(launch_mode="tasks", login_shell=False).render(
-            experiment
-        )
+        plain = _container_backend(launch_mode="tasks", login_shell=False).render(experiment)
 
         self.assertIn("-u bash -lc '", login)
         self.assertIn("-u bash -c '", plain)
@@ -90,14 +80,10 @@ class DataPathTest(unittest.TestCase):
         subprocess.run(["bash", "-n"], input=plain, text=True, check=True)
 
     def test_task_launch_can_disable_numa_binding(self) -> None:
-        experiment = _experiment(
-            megatron_path="/source/Megatron-LM", data_path="/data/prefix"
-        )
+        experiment = _experiment(megatron_path="/source/Megatron-LM", data_path="/data/prefix")
 
         bound = _container_backend(launch_mode="tasks").render(experiment)
-        unbound = _container_backend(launch_mode="tasks", numa_bind=False).render(
-            experiment
-        )
+        unbound = _container_backend(launch_mode="tasks", numa_bind=False).render(experiment)
 
         self.assertIn('numactl --cpunodebind="${SLURM_LOCALID}"', bound)
         self.assertNotIn("numactl", unbound)
@@ -144,9 +130,7 @@ class DataPathTest(unittest.TestCase):
         self.assertNotIn("PYTHONPATH", export_line)
 
     def test_vetnode_uses_one_task_per_gpu_with_numa_binding(self) -> None:
-        experiment = _experiment(
-            megatron_path="/source/Megatron-LM", data_path="/data/prefix"
-        )
+        experiment = _experiment(megatron_path="/source/Megatron-LM", data_path="/data/prefix")
 
         script = SlurmBackend(
             account="test",
@@ -178,9 +162,7 @@ class DataPathTest(unittest.TestCase):
 
         script = _backend(theoretical_memory=True).render(experiment)
 
-        self.assertIn(
-            'python "${MEGATRON_PATH}/tools/report_theoretical_memory.py"', script
-        )
+        self.assertIn('python "${MEGATRON_PATH}/tools/report_theoretical_memory.py"', script)
         self.assertNotIn("estimate_013.py", script)
         self.assertNotIn("--fake-process-group", script)
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
@@ -190,9 +172,7 @@ class DataPathTest(unittest.TestCase):
             _backend(mem_estimator=True, theoretical_memory=True)._template_name()
 
     def test_megatron_is_not_copied_without_a_container(self) -> None:
-        experiment = _experiment(
-            megatron_path="/source/Megatron-LM", data_path="/data/prefix"
-        )
+        experiment = _experiment(megatron_path="/source/Megatron-LM", data_path="/data/prefix")
 
         script = _backend().render(experiment)
 
@@ -245,9 +225,7 @@ class DataPathTest(unittest.TestCase):
         self.assertIn("container=${SPELLBOOK_KERNEL_CACHE_CONTAINER}", script)
         self.assertIn("megatron=${MEGATRON_GIT_COMMIT:-unknown}", script)
         self.assertIn('printf "%s\\n" "experiment=', script)
-        self.assertIn(
-            'SPELLBOOK_LOCAL_CACHE_ROOT="/tmp/spellbook-kernel-cache/', script
-        )
+        self.assertIn('SPELLBOOK_LOCAL_CACHE_ROOT="/tmp/spellbook-kernel-cache/', script)
         self.assertIn('export TRITON_CACHE_DIR="${TRITON_HOME}/cache"', script)
         self.assertIn("export TORCHINDUCTOR_CACHE_DIR=", script)
         self.assertIn('touch "${SPELLBOOK_KERNEL_CACHE_PATH}/.complete"', script)
@@ -344,9 +322,7 @@ class DataPathTest(unittest.TestCase):
         self.assertIn('PROFILE_CMD="nsys profile', script)
 
     def test_auto_requeue_can_cancel_successor_on_completion_regex(self) -> None:
-        experiment = _experiment(
-            megatron_path="/source/Megatron-LM", data_path="/data/prefix"
-        )
+        experiment = _experiment(megatron_path="/source/Megatron-LM", data_path="/data/prefix")
         regex = r"training (finished|model's complete)$"
 
         for launch_mode in ("torchrun", "tasks"):
@@ -358,9 +334,7 @@ class DataPathTest(unittest.TestCase):
                 ).render(experiment)
 
                 self.assertIn("sbatch --parsable --dependency=singleton", script)
-                self.assertIn(
-                    'AUTO_REQUEUE_JOB_ID="${AUTO_REQUEUE_SUBMISSION%%;*}"', script
-                )
+                self.assertIn('AUTO_REQUEUE_JOB_ID="${AUTO_REQUEUE_SUBMISSION%%;*}"', script)
                 self.assertIn('scontrol show job "$SLURM_JOB_ID" -o', script)
                 self.assertIn("grep -Eq --", script)
                 self.assertIn('scancel "${AUTO_REQUEUE_JOB_ID}"', script)
@@ -373,9 +347,7 @@ class DataPathTest(unittest.TestCase):
                 )
 
     def test_auto_requeue_uses_megatron_completion_marker_by_default(self) -> None:
-        experiment = _experiment(
-            megatron_path="/source/Megatron-LM", data_path="/data/prefix"
-        )
+        experiment = _experiment(megatron_path="/source/Megatron-LM", data_path="/data/prefix")
 
         script = _backend(auto_requeue=True).render(experiment)
 
@@ -383,16 +355,10 @@ class DataPathTest(unittest.TestCase):
         self.assertIn('scancel "${AUTO_REQUEUE_JOB_ID}"', script)
 
     def test_auto_requeue_completion_check_requires_both_settings(self) -> None:
-        experiment = _experiment(
-            megatron_path="/source/Megatron-LM", data_path="/data/prefix"
-        )
+        experiment = _experiment(megatron_path="/source/Megatron-LM", data_path="/data/prefix")
 
-        disabled_regex = _backend(auto_requeue=True, auto_requeue_stop_regex="").render(
-            experiment
-        )
-        without_requeue = _backend(auto_requeue_stop_regex="training finished").render(
-            experiment
-        )
+        disabled_regex = _backend(auto_requeue=True, auto_requeue_stop_regex="").render(experiment)
+        without_requeue = _backend(auto_requeue_stop_regex="training finished").render(experiment)
 
         self.assertNotIn("grep -Eq --", disabled_regex)
         self.assertNotIn("grep -Eq --", without_requeue)
@@ -422,9 +388,7 @@ class DataPathTest(unittest.TestCase):
             script = _backend().render(experiment)
 
         self.assertIn("--data-args-path /data/manifest.txt", script)
-        self.assertFalse(
-            any("no data path" in str(warning.message).lower() for warning in caught)
-        )
+        self.assertFalse(any("no data path" in str(warning.message).lower() for warning in caught))
 
     def test_saved_render_generates_manifest_for_base_data_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -442,9 +406,7 @@ class DataPathTest(unittest.TestCase):
                 follow_symlinks=True,
             )
 
-            paths = _backend().render_all(
-                "test-sweep", [experiment], output_dir=str(output_dir)
-            )
+            paths = _backend().render_all("test-sweep", [experiment], output_dir=str(output_dir))
 
             script_path = Path(paths[0])
             manifest_path = script_path.with_suffix(".data_args.txt")

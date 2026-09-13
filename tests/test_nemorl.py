@@ -60,13 +60,9 @@ class NemoRLBackendTest(unittest.TestCase):
         self.assertIn("examples/run_grpo.py", body_text)
         self.assertIn('"$head_node"', wrapper)
         self.assertIn("$((num_nodes - 1))", wrapper)
-        self.assertIn(
-            '--ntasks-per-node="${SPELLBOOK_VETNODE_TASKS_PER_NODE}"', wrapper
-        )
+        self.assertIn('--ntasks-per-node="${SPELLBOOK_VETNODE_TASKS_PER_NODE}"', wrapper)
         self.assertIn('numactl --cpunodebind="${SLURM_LOCALID}"', wrapper)
-        self.assertIn(
-            'EXPORTS="RAY_HEAD_IP,RAY_ADDRESS,RAY_READY_FILE,RAY_DONE_FILE"', wrapper
-        )
+        self.assertIn('EXPORTS="RAY_HEAD_IP,RAY_ADDRESS,RAY_READY_FILE,RAY_DONE_FILE"', wrapper)
         self.assertIn("mapfile -t nodes_array", wrapper)
         self.assertIn("--mpi=pmix --wait=30", wrapper)
         subprocess.run(["bash", "-n"], input=wrapper, text=True, check=True)
@@ -90,9 +86,7 @@ class NemoRLBackendTest(unittest.TestCase):
         )
 
     def test_non_generation_algorithm_omits_generation_settings(self) -> None:
-        recipe = _backend().build_recipe(
-            _experiment(algorithm="sft", num_prompts_per_step=0)
-        )
+        recipe = _backend().build_recipe(_experiment(algorithm="sft", num_prompts_per_step=0))
 
         self.assertNotIn("num_prompts_per_step", recipe["sft"])
         self.assertNotIn("generation", recipe["policy"])
@@ -115,9 +109,7 @@ class NemoRLBackendTest(unittest.TestCase):
             tempfile.TemporaryDirectory() as directory,
             self.assertRaisesRegex(ValueError, "world_size=8"),
         ):
-            _backend().render_recipe(
-                _experiment(tensor_model_parallel_size=3), Path(directory)
-            )
+            _backend().render_recipe(_experiment(tensor_model_parallel_size=3), Path(directory))
 
     def test_auto_requeue_requires_checkpoint_directory(self) -> None:
         with (

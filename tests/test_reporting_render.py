@@ -353,9 +353,7 @@ class ReportingRenderTest(unittest.TestCase):
             "laws",
             WandbGroup("entity/project"),
             [
-                EndpointScalingLaw(
-                    x=["total_params", "active_params", "tokens", "flops"]
-                ),
+                EndpointScalingLaw(x=["total_params", "active_params", "tokens", "flops"]),
                 ChinchillaScalingLaw(samples_per_model=16),
             ],
             models=models,
@@ -367,13 +365,9 @@ class ReportingRenderTest(unittest.TestCase):
             artifacts = render_plots(report, series, root)
 
             self.assertEqual(len(artifacts), 2)
-            endpoint_fit = json.loads(
-                (root / "01-endpoint-scaling-law.json").read_text()
-            )
+            endpoint_fit = json.loads((root / "01-endpoint-scaling-law.json").read_text())
             self.assertIn("tokens", endpoint_fit)
-            chinchilla_fit = json.loads(
-                (root / "02-chinchilla-scaling-law.json").read_text()
-            )
+            chinchilla_fit = json.loads((root / "02-chinchilla-scaling-law.json").read_text())
             self.assertEqual(chinchilla_fit["parameter"], "active_params")
             self.assertEqual(chinchilla_fit["points"], 96)
             self.assertGreater(chinchilla_fit["r2"], 0.99)

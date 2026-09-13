@@ -55,16 +55,14 @@ class MegatronCheckpointMergeConfig:
 
 def _is_megatron_url(value: str) -> bool:
     parsed = urlparse(value)
-    return (
-        parsed.scheme in {"git", "http", "https", "ssh"} and bool(parsed.netloc)
-    ) or (value.startswith("git@") and ":" in value)
+    return (parsed.scheme in {"git", "http", "https", "ssh"} and bool(parsed.netloc)) or (
+        value.startswith("git@") and ":" in value
+    )
 
 
 def _validate(cfg: MegatronCheckpointMergeConfig) -> None:
     if not _JOB_NAME.fullmatch(cfg.name):
-        raise ValueError(
-            "name may contain only letters, numbers, dots, underscores, and hyphens"
-        )
+        raise ValueError("name may contain only letters, numbers, dots, underscores, and hyphens")
     if max(len(cfg.checkpoints), len(cfg.checkpoint_steps)) < 2:
         raise ValueError("checkpoint merging requires at least two checkpoints")
     if not cfg.output or not cfg.megatron_path:
@@ -88,12 +86,9 @@ def _validate(cfg: MegatronCheckpointMergeConfig) -> None:
         raise ValueError("backend must be 'gloo' or 'nccl'")
     if cfg.checkpoint_steps:
         if len(cfg.checkpoints) != 1 and len(cfg.checkpoints) != len(cfg.checkpoint_steps):
-            raise ValueError(
-                "provide one checkpoint root or one root per checkpoint step"
-            )
+            raise ValueError("provide one checkpoint root or one root per checkpoint step")
         if any(
-            left >= right
-            for left, right in zip(cfg.checkpoint_steps, cfg.checkpoint_steps[1:])
+            left >= right for left, right in zip(cfg.checkpoint_steps, cfg.checkpoint_steps[1:])
         ):
             raise ValueError("checkpoint_steps must be strictly increasing")
     invalid_env_names = [name for name in cfg.env_vars if not _ENV_NAME.fullmatch(name)]
@@ -134,10 +129,7 @@ def _merge_args(cfg: MegatronCheckpointMergeConfig) -> list[str]:
 
 def _shell_double_quote(value: str) -> str:
     escaped = (
-        value.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("$", "\\$")
-        .replace("`", "\\`")
+        value.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("`", "\\`")
     )
     return f'"{escaped}"'
 
@@ -156,13 +148,9 @@ def render(cfg: MegatronCheckpointMergeConfig) -> str:
         {
             "log_dir": str(Path(cfg.log_dir).expanduser().resolve()),
             "total_workers": cfg.nodes * cfg.workers_per_node,
-            "megatron_path": (
-                "" if megatron_url else str(Path(cfg.megatron_path).expanduser())
-            ),
+            "megatron_path": ("" if megatron_url else str(Path(cfg.megatron_path).expanduser())),
             "megatron_url": megatron_url,
-            "megatron_cache_key": hashlib.sha256(
-                cfg.megatron_path.encode()
-            ).hexdigest()[:16],
+            "megatron_cache_key": hashlib.sha256(cfg.megatron_path.encode()).hexdigest()[:16],
             "megatron_worktree_key": hashlib.sha256(
                 f"{cfg.megatron_path}\0{cfg.megatron_commit}".encode()
             ).hexdigest()[:16],
@@ -174,9 +162,7 @@ def render(cfg: MegatronCheckpointMergeConfig) -> str:
 
 
 def _sbatch(script: str) -> str:
-    result = subprocess.run(
-        ["sbatch"], input=script, capture_output=True, text=True, check=True
-    )
+    result = subprocess.run(["sbatch"], input=script, capture_output=True, text=True, check=True)
     return result.stdout.strip().split()[-1]
 
 

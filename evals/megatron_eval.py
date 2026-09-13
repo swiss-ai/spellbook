@@ -32,9 +32,7 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from evals import flags as lm_eval_flags
 
 _TEMPLATES_DIR = Path(__file__).parent
-_SHARED_TEMPLATES_DIR = (
-    Path(__file__).resolve().parent.parent / "spellbook" / "backends"
-)
+_SHARED_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "spellbook" / "backends"
 _LM_EVAL_ARG = {"lm_eval_arg": True}
 _RUN_NAME = re.compile(r"^[A-Za-z0-9_.-]+$")
 
@@ -82,19 +80,13 @@ class MegatronEvalConfig:
     ep: int = 1
     seq_length: int = 4096  # lm-eval adapter context limit
     micro_batch_size: int = 1  # per-rank batch passed to the lm-eval adapter
-    metadata: dict[str, object] = dataclasses.field(
-        default_factory=dict, metadata=_LM_EVAL_ARG
-    )
+    metadata: dict[str, object] = dataclasses.field(default_factory=dict, metadata=_LM_EVAL_ARG)
     extra_args: str = ""  # extra flags appended verbatim to lm_eval model_args
     model_args_extra: dict[str, Any] = dataclasses.field(default_factory=dict)
     output_dir: str | None = None  # defaults to <submission directory>/evals
     log_samples: bool = dataclasses.field(default=False, metadata=_LM_EVAL_ARG)
-    write_out: bool = dataclasses.field(
-        default=False, metadata=_LM_EVAL_ARG
-    )  # print prompts
-    eval_runs: list[LMEvalRunConfig] = dataclasses.field(
-        default_factory=list, kw_only=True
-    )
+    write_out: bool = dataclasses.field(default=False, metadata=_LM_EVAL_ARG)  # print prompts
+    eval_runs: list[LMEvalRunConfig] = dataclasses.field(default_factory=list, kw_only=True)
 
     # --- Slurm ---
     account: str = ""
@@ -134,9 +126,7 @@ class MegatronEvalConfig:
     lm_eval_install: str = ""  # pip install URL/path; skipped if empty
     # Use the eval interpreter via python -m pip instead of bare pip.
     lm_eval_install_with_python: bool = False
-    install_commands: str = (
-        ""  # raw shell commands run before evaluation; skipped if empty
-    )
+    install_commands: str = ""  # raw shell commands run before evaluation; skipped if empty
 
     # --- Dataset prefetch ---
     # Mapping from lm-eval task name to load_dataset() call args, e.g.:
@@ -212,16 +202,14 @@ def _validate_eval_runs(cfg: MegatronEvalConfig) -> None:
 
 def _is_megatron_url(value: str) -> bool:
     parsed = urlparse(value)
-    return (
-        parsed.scheme in {"git", "http", "https", "ssh"} and bool(parsed.netloc)
-    ) or (value.startswith("git@") and ":" in value)
+    return (parsed.scheme in {"git", "http", "https", "ssh"} and bool(parsed.netloc)) or (
+        value.startswith("git@") and ":" in value
+    )
 
 
 def _checkpoint_load_path(cfg: MegatronEvalConfig, reporting_step: int) -> Path:
     """Resolve the checkpoint directory Megatron will actually load."""
-    model_root = Path(
-        cfg.model_args_extra.get("load", Path(cfg.checkpoint_dir) / cfg.model_name)
-    )
+    model_root = Path(cfg.model_args_extra.get("load", Path(cfg.checkpoint_dir) / cfg.model_name))
     load_step = cfg.model_args_extra.get("ckpt_step", reporting_step)
     if load_step:
         return model_root / f"iter_{int(load_step):07d}"
@@ -269,17 +257,13 @@ def _render_checkpoints(
     tmpl = env.get_template("megatron_eval.sh.j2")
     ctx = dataclasses.asdict(cfg)
     ctx["megatron_container_path"] = container_path
-    ctx["vetnode_config"] = cfg.vetnode_config or str(
-        _SHARED_TEMPLATES_DIR / "vetnode-config.yaml"
-    )
+    ctx["vetnode_config"] = cfg.vetnode_config or str(_SHARED_TEMPLATES_DIR / "vetnode-config.yaml")
     # Keys the persistent exclusion list; model_name scopes it per eval target.
     ctx["vetnode_key"] = hashlib.sha256(cfg.model_name.encode()).hexdigest()[:16]
     if _is_megatron_url(cfg.megatron_path):
         ctx["megatron_url"] = cfg.megatron_path
         ctx["megatron_path"] = ""
-        ctx["megatron_cache_key"] = hashlib.sha256(
-            cfg.megatron_path.encode()
-        ).hexdigest()[:16]
+        ctx["megatron_cache_key"] = hashlib.sha256(cfg.megatron_path.encode()).hexdigest()[:16]
     else:
         ctx["megatron_url"] = ""
         ctx["megatron_cache_key"] = ""
@@ -306,9 +290,7 @@ def _render_checkpoints(
     ctx["dependency_singleton"] = dependency_singleton
     ctx["ntasks_per_node"] = cfg.gpus_per_node if cfg.launch_mode == "tasks" else 1
     ctx["total_tasks"] = cfg.nodes * ctx["ntasks_per_node"]
-    output_dir = (
-        Path(cfg.output_dir).expanduser() if cfg.output_dir else Path.cwd() / "evals"
-    )
+    output_dir = Path(cfg.output_dir).expanduser() if cfg.output_dir else Path.cwd() / "evals"
     model_output_dir = output_dir.resolve() / cfg.model_name
     ctx["suite_output_dir"] = str(
         model_output_dir / f"step_{checkpoints[0][0]}"
@@ -316,24 +298,18 @@ def _render_checkpoints(
         else model_output_dir
     )
     ctx["eval_runs"] = []
-    runs: tuple[LMEvalRunConfig | None, ...] = (
-        tuple(cfg.eval_runs) if cfg.eval_runs else (None,)
-    )
+    runs: tuple[LMEvalRunConfig | None, ...] = tuple(cfg.eval_runs) if cfg.eval_runs else (None,)
     ctx["dataset_prefetch_runs"] = [
         {
             "tasks": run.tasks if run is not None else cfg.tasks,
-            "include_path": (
-                run.lm_eval_args.get("include_path") if run is not None else None
-            ),
+            "include_path": (run.lm_eval_args.get("include_path") if run is not None else None),
         }
         for run in runs
     ]
     for ckpt_step, consumed_tokens in checkpoints:
         checkpoint_output = model_output_dir / f"step_{ckpt_step}"
         for run in runs:
-            run_output_path = (
-                checkpoint_output / run.name if run is not None else checkpoint_output
-            )
+            run_output_path = checkpoint_output / run.name if run is not None else checkpoint_output
             base_id = cfg.wandb_id or cfg.model_name
             run_id = base_id if run is None else run.wandb_id or f"{base_id}-{run.name}"
             wandb_parts = [
@@ -346,9 +322,7 @@ def _render_checkpoints(
             if consumed_tokens is not None:
                 wandb_parts.append(f"consumed_tokens={consumed_tokens}")
             wandb_parts.append("resume=allow")
-            wandb_args = {
-                "wandb_args": ",".join(wandb_parts) if cfg.wandb_project else None
-            }
+            wandb_args = {"wandb_args": ",".join(wandb_parts) if cfg.wandb_project else None}
             ctx["eval_runs"].append(
                 {
                     "name": run.name if run is not None else "default",
@@ -359,9 +333,7 @@ def _render_checkpoints(
                     "lm_eval_args_lines": lm_eval_flags.to_shell_lines(
                         _lm_eval_args(cfg, ckpt_step, run_output_path, run)
                     ),
-                    "wandb_args_line": next(
-                        iter(lm_eval_flags.to_shell_lines(wandb_args)), ""
-                    ),
+                    "wandb_args_line": next(iter(lm_eval_flags.to_shell_lines(wandb_args)), ""),
                 }
             )
     return tmpl.render(ctx)
@@ -373,9 +345,7 @@ def _render(
     dependency_singleton: bool,
     consumed_tokens: int | None = None,
 ) -> str:
-    return _render_checkpoints(
-        cfg, ((ckpt_step, consumed_tokens),), dependency_singleton
-    )
+    return _render_checkpoints(cfg, ((ckpt_step, consumed_tokens),), dependency_singleton)
 
 
 def _clean_sbatch_env() -> dict[str, str]:
@@ -435,12 +405,8 @@ def render_watcher_script(
         raise ValueError("consumed_tokens_per_step must be greater than zero")
     if project_dir is None:
         project_dir = Path(__file__).resolve().parent.parent
-    watcher_name = (
-        cfg.model_name if config_group is None else f"{cfg.model_name}-{config_group}"
-    )
-    output_root = (
-        Path(cfg.watcher_dir).expanduser() if cfg.watcher_dir else project_dir / "evals"
-    )
+    watcher_name = cfg.model_name if config_group is None else f"{cfg.model_name}-{config_group}"
+    output_root = Path(cfg.watcher_dir).expanduser() if cfg.watcher_dir else project_dir / "evals"
     output_dir = output_root / watcher_name
     output_dir.mkdir(parents=True, exist_ok=True)
     script_path = output_dir / "watcher.sh"
@@ -515,9 +481,7 @@ def submit(
     consumed_tokens: int | None = None,
 ) -> str:
     """Submit one checkpoint, optionally using consumed tokens as the W&B x-axis."""
-    return _submit_checkpoints(
-        cfg, ((ckpt_step, consumed_tokens),), dependency_singleton
-    )
+    return _submit_checkpoints(cfg, ((ckpt_step, consumed_tokens),), dependency_singleton)
 
 
 def submit_evaluations(
@@ -535,9 +499,7 @@ def submit_evaluations(
     if len(set(steps)) != len(steps):
         raise ValueError("ckpt_steps must be unique")
     checkpoint_groups = (
-        (steps,)
-        if checkpoint_mode == AllocationMode.SHARED
-        else tuple((step,) for step in steps)
+        (steps,) if checkpoint_mode == AllocationMode.SHARED else tuple((step,) for step in steps)
     )
     config_groups = (
         [cfg]
@@ -549,9 +511,7 @@ def submit_evaluations(
     for checkpoint_group in checkpoint_groups:
         checkpoints = tuple((step, tokens.get(step)) for step in checkpoint_group)
         for grouped_cfg in config_groups:
-            job_ids.append(
-                _submit_checkpoints(grouped_cfg, checkpoints, dependency_singleton)
-            )
+            job_ids.append(_submit_checkpoints(grouped_cfg, checkpoints, dependency_singleton))
     return job_ids
 
 
@@ -575,10 +535,7 @@ def submit_range(
         raise ValueError("step must be greater than zero")
     ckpt_steps = tuple(range(start, end + 1, step))
     consumed_tokens = (
-        {
-            ckpt_step: global_batch_size * ckpt_step * seq_length
-            for ckpt_step in ckpt_steps
-        }
+        {ckpt_step: global_batch_size * ckpt_step * seq_length for ckpt_step in ckpt_steps}
         if global_batch_size is not None and seq_length is not None
         else None
     )

@@ -51,11 +51,7 @@ def _load_config(
     if cfg is None and model_name is not None:
         builder = getattr(mod, "build_eval_config", None)
         if callable(builder):
-            cfg = (
-                builder(model_name, group_name)
-                if group_name is not None
-                else builder(model_name)
-            )
+            cfg = builder(model_name, group_name) if group_name is not None else builder(model_name)
     if not isinstance(cfg, MegatronEvalConfig):
         print(
             f"ERROR: {config_path} must define `cfg: MegatronEvalConfig` or "
@@ -95,11 +91,7 @@ def _state_file(
 def _submitted_steps(state: Path) -> set[int]:
     if not state.exists():
         return set()
-    return {
-        int(line.strip())
-        for line in state.read_text().splitlines()
-        if line.strip().isdigit()
-    }
+    return {int(line.strip()) for line in state.read_text().splitlines() if line.strip().isdigit()}
 
 
 def _record_step(state: Path, step: int) -> None:
@@ -118,9 +110,7 @@ def _consumed_tokens(step: int, tokens_per_step: int | None) -> int | None:
 
 def cmd_check(args: argparse.Namespace) -> None:
     group_name = args.group
-    cfg, watch_dir_override, state_dir = _load_config(
-        args.config, args.model, group_name
-    )
+    cfg, watch_dir_override, state_dir = _load_config(args.config, args.model, group_name)
     eval_job_name = args.eval_job_name
     if eval_job_name is not None:
         os.environ["SBATCH_JOB_NAME"] = eval_job_name
@@ -133,13 +123,15 @@ def cmd_check(args: argparse.Namespace) -> None:
             cfg,
             args.step,
             dependency_singleton=args.dependency_singleton,
-            consumed_tokens=_consumed_tokens(
-                args.step, args.consumed_tokens_per_step
-            ),
+            consumed_tokens=_consumed_tokens(args.step, args.consumed_tokens_per_step),
         )
         return
 
-    ckpt_dir = Path(watch_dir_override) if watch_dir_override else Path(cfg.checkpoint_dir) / cfg.model_name
+    ckpt_dir = (
+        Path(watch_dir_override)
+        if watch_dir_override
+        else Path(cfg.checkpoint_dir) / cfg.model_name
+    )
     latest = _latest_step(ckpt_dir)
     if latest is None:
         print(f"No completed checkpoint found in {ckpt_dir} — nothing to do.")
@@ -174,9 +166,7 @@ def _watcher_stop_file(
 
 def cmd_start(args: argparse.Namespace) -> None:
     group_name = args.group
-    cfg, watch_dir_override, state_dir = _load_config(
-        args.config, args.model, group_name
-    )
+    cfg, watch_dir_override, state_dir = _load_config(args.config, args.model, group_name)
     project_dir = Path.cwd().resolve()
     stop_file = _watcher_stop_file(cfg, project_dir, state_dir, group_name)
     stop_file.unlink(missing_ok=True)
@@ -235,7 +225,9 @@ def main() -> None:
 
     # Default mode (no subcommand): one-shot check, called by the sbatch watcher
     parser.add_argument("--config", help="Path to eval config .py file")
-    parser.add_argument("--step", type=int, default=None, help="Submit this specific step (skips state-file check)")
+    parser.add_argument(
+        "--step", type=int, default=None, help="Submit this specific step (skips state-file check)"
+    )
     parser.add_argument("--model", help="Model passed to build_eval_config(model_name)")
     parser.add_argument("--group", help="Group passed to build_eval_config(model_name, group)")
     parser.add_argument("--eval-job-name", help="Slurm job name for submitted evaluations")

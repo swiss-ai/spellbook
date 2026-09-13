@@ -18,9 +18,7 @@ from pathlib import Path
 import yaml
 
 
-def _run(
-    cmd: list[str], cwd: Path | None = None, env: dict[str, str] | None = None
-) -> None:
+def _run(cmd: list[str], cwd: Path | None = None, env: dict[str, str] | None = None) -> None:
     print(f"[gym] $ {' '.join(cmd)}", flush=True)
     subprocess.run(cmd, cwd=cwd, env=env, check=True)
 
@@ -143,12 +141,7 @@ def collate(args: argparse.Namespace, out: Path) -> None:
         parents=True, exist_ok=True
     )
     gym_bin = (
-        Path(args.venv_dir)
-        / "resources_servers"
-        / args.dataset_name
-        / ".venv"
-        / "bin"
-        / "gym"
+        Path(args.venv_dir) / "resources_servers" / args.dataset_name / ".venv" / "bin" / "gym"
     )
     print(f"[gym] collating -> {out}")
     # cwd is the scratch root so the raw download and the *_prepare.jsonl / metrics
@@ -183,9 +176,7 @@ def postprocess(out: Path, grading_mode: str, validation_rows: int) -> None:
             row["grading_mode"] = grading_mode
 
     train, val = (
-        (rows[:-validation_rows], rows[-validation_rows:])
-        if validation_rows
-        else (rows, [])
+        (rows[:-validation_rows], rows[-validation_rows:]) if validation_rows else (rows, [])
     )
     parts = [("train", train)] + ([("validation", val)] if validation_rows else [])
     for name, part in parts:
@@ -213,8 +204,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument(
         "--prefetch-config",
         default="",
-        help="NeMo-RL config with an env.nemo_gym block; generated from "
-        "--config-path when omitted",
+        help="NeMo-RL config with an env.nemo_gym block; generated from --config-path when omitted",
     )
     args = p.parse_args(argv)
 
@@ -255,9 +245,7 @@ def main(argv: list[str] | None = None) -> int:
         config = (
             Path(args.prefetch_config)
             if args.prefetch_config
-            else write_prefetch_config(
-                args, Path(args.venv_dir).parent / "spellbook-prefetch.yaml"
-            )
+            else write_prefetch_config(args, Path(args.venv_dir).parent / "spellbook-prefetch.yaml")
         )
         prefetch_venvs(Path(args.nemo_rl_path), config)
 

@@ -75,7 +75,7 @@ NemoRLExperiment(
     nemo_rl_path="/users/<you>/open_source/Nemo-RL",
     bridge_src_path="/users/<you>/open_source/SwissAI-Megatron-Bridge/src",  # .../src, not the repo root
     megatron_path="/users/<you>/open_source/Megatron-LM-MoE",
-    overlay_paths=(),          # nothing to overlay: the image has it all
+    overlay_paths=(),  # nothing to overlay: the image has it all
 )
 ```
 

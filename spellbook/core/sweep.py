@@ -62,7 +62,10 @@ class Sweep:
 # Convenience constructors
 # ---------------------------------------------------------------------------
 
-def sweep_axis(base: Experiment, field: str, values: list[Any], *, backend: Any, name: str | None = None) -> Sweep:
+
+def sweep_axis(
+    base: Experiment, field: str, values: list[Any], *, backend: Any, name: str | None = None
+) -> Sweep:
     """Single-axis sweep over `field` values."""
     sweep_name = name or f"{base.name}-{field}"
     return Sweep(
@@ -72,7 +75,9 @@ def sweep_axis(base: Experiment, field: str, values: list[Any], *, backend: Any,
     )
 
 
-def sweep_grid(base: Experiment, axes: dict[str, list[Any]], *, backend: Any, name: str | None = None) -> Sweep:
+def sweep_grid(
+    base: Experiment, axes: dict[str, list[Any]], *, backend: Any, name: str | None = None
+) -> Sweep:
     """
     Multi-axis grid sweep.
 

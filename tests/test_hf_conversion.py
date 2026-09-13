@@ -48,9 +48,7 @@ class HFConversionTest(unittest.TestCase):
                 ["git", "-C", root, "config", "user.email", "test@example.com"],
                 check=True,
             )
-            subprocess.run(
-                ["git", "-C", root, "config", "user.name", "Test"], check=True
-            )
+            subprocess.run(["git", "-C", root, "config", "user.name", "Test"], check=True)
         subprocess.run(["git", "-C", root, "add", "."], check=True)
         subprocess.run(
             ["git", "-C", root, "commit", "--allow-empty", "-m", message],
@@ -77,9 +75,7 @@ class HFConversionTest(unittest.TestCase):
             self.assertEqual(environment["REPO"], cfg.hfconverter_root)
             self.assertEqual(environment["TOKENIZER_DIR"], cfg.tokenizer_dir)
             self.assertEqual(environment["VERIFY_LOAD"], "1")
-            self.assertEqual(
-                environment["EXTRA_EXPORT_ARGS"], "--max-shard-size 2GB"
-            )
+            self.assertEqual(environment["EXTRA_EXPORT_ARGS"], "--max-shard-size 2GB")
 
     def test_reuses_completed_output_by_default(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
@@ -170,9 +166,7 @@ class HFConversionTest(unittest.TestCase):
                     command, _ = render_submission(cfg)
 
                 checkout = Path(command[0]).parent.parent
-                self.assertTrue(
-                    checkout.is_relative_to(expected_root / "hfconverter_worktrees")
-                )
+                self.assertTrue(checkout.is_relative_to(expected_root / "hfconverter_worktrees"))
                 self.assertTrue((expected_root / "hfconverter_repos").is_dir())
                 self.assertEqual(
                     subprocess.run(

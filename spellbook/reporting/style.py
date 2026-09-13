@@ -24,10 +24,7 @@ HEATMAP_CMAP = LinearSegmentedColormap.from_list(
 
 
 def model_colors(models: Sequence[str]) -> dict[str, str]:
-    return {
-        model: MODEL_COLORS[index % len(MODEL_COLORS)]
-        for index, model in enumerate(models)
-    }
+    return {model: MODEL_COLORS[index % len(MODEL_COLORS)] for index, model in enumerate(models)}
 
 
 def apply_style() -> None:

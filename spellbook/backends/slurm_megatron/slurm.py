@@ -62,9 +62,9 @@ _SHARED_TEMPLATES_DIR = Path(__file__).resolve().parent.parent
 def _is_megatron_url(value: str) -> bool:
     """Return whether a Megatron source is a supported Git URL."""
     parsed = urlparse(value)
-    return (
-        parsed.scheme in {"git", "http", "https", "ssh"} and bool(parsed.netloc)
-    ) or (value.startswith("git@") and ":" in value)
+    return (parsed.scheme in {"git", "http", "https", "ssh"} and bool(parsed.netloc)) or (
+        value.startswith("git@") and ":" in value
+    )
 
 
 # Variables always forwarded to srun workers regardless of experiment env_vars.
@@ -104,26 +104,20 @@ class SlurmBackend:
     partition: str
     gpus_per_node: int
     run_time: str  # "HH:MM:SS"
-    nodes: int | None = (
-        None  # if None, derived from experiment.num_gpus // gpus_per_node
-    )
+    nodes: int | None = None  # if None, derived from experiment.num_gpus // gpus_per_node
     log_dir: str = "slurm_logs"
     reservation: str = ""  # adds --reservation to sbatch header + sbatch cmd
     dependency_singleton: bool = True  # adds --dependency=singleton to sbatch header
     no_save: bool = False  # render and submit without writing the .sh file to disk
     srun_job_id: str = ""  # when set, use srun.sh.j2 + run inside allocation
     mem_estimator: bool = False  # use bundled estimator (1 GPU, fake process group)
-    theoretical_memory: bool = (
-        False  # use Megatron's tools/report_theoretical_memory.py
-    )
+    theoretical_memory: bool = False  # use Megatron's tools/report_theoretical_memory.py
     launch_mode: str = (
         "torchrun"  # "torchrun" or "tasks"; tasks runs python directly per Slurm task
     )
     numa_bind: bool = True  # wrap task-mode Python with numactl local-rank binding
     login_shell: bool = True  # use bash -lc instead of bash -c inside srun
-    auto_requeue: bool = (
-        False  # submit next job before srun (sbatch --dependency=singleton $0)
-    )
+    auto_requeue: bool = False  # submit next job before srun (sbatch --dependency=singleton $0)
     auto_requeue_stop_regex: str = r"\[after training is done\] datetime:"
     vetnode_max_excluded_nodes: int = 256
     # CSCS node validation (https://docs.cscs.ch/running/vetnode/), run before the
@@ -143,9 +137,7 @@ class SlurmBackend:
         default_factory=list
     )  # env var names whose values are prepended to PYTHONPATH
     kernel_cache: bool = False
-    kernel_cache_root: str = (
-        "${SCRATCH:-/iopsstor/scratch/cscs/$USER}/tmp/spellbook/kernel-cache"
-    )
+    kernel_cache_root: str = "${SCRATCH:-/iopsstor/scratch/cscs/$USER}/tmp/spellbook/kernel-cache"
     kernel_cache_key_fields: tuple[str, ...] = ("container", "megatron", "experiment")
     kernel_cache_key_values: dict[str, str] = field(default_factory=dict)
     kernel_cache_warmup_steps: int | None = None
@@ -260,9 +252,7 @@ class SlurmBackend:
                 "expected 'torchrun' or 'tasks'."
             )
         if self.mem_estimator and self.theoretical_memory:
-            raise ValueError(
-                "mem_estimator and theoretical_memory are mutually exclusive"
-            )
+            raise ValueError("mem_estimator and theoretical_memory are mutually exclusive")
         if self.mem_estimator or self.theoretical_memory:
             return "mem_estimator.sh.j2"
         if self.srun_job_id:
@@ -284,17 +274,9 @@ class SlurmBackend:
                 d.get("training_args") or [], "--data-args-path"
             )
             d["data_args_path"] = ""
-        elif (
-            not d.get("data_path")
-            and not d.get("data_args_path")
-            and d.get("base_data_path")
-        ):
-            paths = [
-                path.strip() for path in d["base_data_path"].split(",") if path.strip()
-            ]
-            prefixes = create_data_prefix(
-                paths, follow_symlinks=bool(d.get("follow_symlinks"))
-            )
+        elif not d.get("data_path") and not d.get("data_args_path") and d.get("base_data_path"):
+            paths = [path.strip() for path in d["base_data_path"].split(",") if path.strip()]
+            prefixes = create_data_prefix(paths, follow_symlinks=bool(d.get("follow_symlinks")))
             if not prefixes:
                 warnings.warn(
                     f"[{experiment.name}] base_data_path '{d['base_data_path']}' "
@@ -341,9 +323,7 @@ class SlurmBackend:
         if _is_megatron_url(megatron_source):
             d["megatron_url"] = megatron_source
             d["megatron_path"] = ""
-            d["megatron_cache_key"] = hashlib.sha256(
-                megatron_source.encode()
-            ).hexdigest()[:16]
+            d["megatron_cache_key"] = hashlib.sha256(megatron_source.encode()).hexdigest()[:16]
         else:
             d["megatron_url"] = ""
             d["megatron_cache_key"] = ""
@@ -361,23 +341,15 @@ class SlurmBackend:
         }
         if unknown:
             raise ValueError(f"Unsupported kernel_cache_key_fields: {sorted(unknown)}")
-        if self.kernel_cache and not (
-            self.kernel_cache_key_fields or self.kernel_cache_key_values
-        ):
-            raise ValueError(
-                "kernel cache key must contain at least one field or value"
-            )
+        if self.kernel_cache and not (self.kernel_cache_key_fields or self.kernel_cache_key_values):
+            raise ValueError("kernel cache key must contain at least one field or value")
         if self.kernel_cache_warmup_steps is not None:
             if not self.kernel_cache:
                 raise ValueError("kernel_cache_warmup_steps requires kernel_cache=True")
             # The warmup run exits early on purpose; requeueing it would loop forever.
             if self.auto_requeue:
                 raise ValueError("kernel cache warmup cannot use auto_requeue")
-        if (
-            self.vetnode
-            and self.vetnode_config
-            and not Path(self.vetnode_config).is_file()
-        ):
+        if self.vetnode and self.vetnode_config and not Path(self.vetnode_config).is_file():
             raise ValueError(f"vetnode_config not found: {self.vetnode_config}")
 
     def _apply_kernel_cache_warmup(self, d: dict[str, Any]) -> None:
@@ -388,9 +360,7 @@ class SlurmBackend:
         """
         if self.kernel_cache_warmup_steps is None:
             return
-        training_args = self._remove_training_arg(
-            d.get("training_args") or [], "--exit-interval"
-        )
+        training_args = self._remove_training_arg(d.get("training_args") or [], "--exit-interval")
         global_batch_size = int(d.get("gbs") or d.get("global_batch_size") or 0)
         if global_batch_size:
             training_args = [
@@ -427,9 +397,7 @@ class SlurmBackend:
         self._validate_pre_launch()
         self._apply_kernel_cache_warmup(d)
 
-        d["training_args_lines"] = self._format_training_args_lines(
-            d.get("training_args") or []
-        )
+        d["training_args_lines"] = self._format_training_args_lines(d.get("training_args") or [])
         # Backend env vars are infrastructure defaults; experiment env_vars override them.
         d["env_vars"] = {**self.env_vars, **(d.get("env_vars") or {})}
         d["env_vars"].setdefault("MEGATRON_PATH", d.get("megatron_path") or "")
@@ -444,16 +412,12 @@ class SlurmBackend:
                 )
             nodes = num_gpus // self.gpus_per_node
         # Resolve mem_estimator_path: default to the bundled copy in slurm_megatron/memory_estimator
-        mem_estimator_path = d.get("mem_estimator_path") or str(
-            _TEMPLATES_DIR / "memory_estimator"
-        )
+        mem_estimator_path = d.get("mem_estimator_path") or str(_TEMPLATES_DIR / "memory_estimator")
         env_vars: dict = d.get("env_vars") or {}
         pythonpath_parts = [
             str(env_vars[var]) for var in self.pythonpath_env_vars if env_vars.get(var)
         ]
-        srun_export_vars = ",".join(
-            dict.fromkeys(_SRUN_INFRA_EXPORTS + list(env_vars.keys()))
-        )
+        srun_export_vars = ",".join(dict.fromkeys(_SRUN_INFRA_EXPORTS + list(env_vars.keys())))
         srun_extra_arg_env_vars = {}
         srun_extra_tokens = self.srun_extra_args.split()
         for idx, token in enumerate(srun_extra_tokens):
@@ -589,9 +553,7 @@ class SlurmBackend:
         for exp, path in zip(experiments, paths):
             if self.no_save:
                 script = self.render(exp)
-                with tempfile.NamedTemporaryFile(
-                    mode="w", suffix=".sh", delete=False
-                ) as tmp:
+                with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as tmp:
                     tmp.write(script)
                     tmp_path = tmp.name
                 try:

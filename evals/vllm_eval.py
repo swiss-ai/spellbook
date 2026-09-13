@@ -33,9 +33,7 @@ class VLLMEvalConfig:
     cache_requests: str = dataclasses.field(default="", metadata=_LM_EVAL_ARG)
     num_fewshot: int | None = dataclasses.field(default=None, metadata=_LM_EVAL_ARG)
     limit: float | None = dataclasses.field(default=None, metadata=_LM_EVAL_ARG)
-    metadata: dict[str, object] = dataclasses.field(
-        default_factory=dict, metadata=_LM_EVAL_ARG
-    )
+    metadata: dict[str, object] = dataclasses.field(default_factory=dict, metadata=_LM_EVAL_ARG)
     output_dir: str | None = None
     log_samples: bool = dataclasses.field(default=False, metadata=_LM_EVAL_ARG)
     write_out: bool = dataclasses.field(default=False, metadata=_LM_EVAL_ARG)
@@ -110,9 +108,7 @@ def _model_args(cfg: VLLMEvalConfig) -> str:
 
 def _validate(cfg: VLLMEvalConfig) -> None:
     if cfg.nodes != 1:
-        raise ValueError(
-            "standard lm-eval vLLM launches currently support one Slurm node"
-        )
+        raise ValueError("standard lm-eval vLLM launches currently support one Slurm node")
     if not _JOB_NAME.fullmatch(cfg.model_name):
         raise ValueError(
             "model_name may contain only letters, numbers, dots, underscores, and hyphens"
@@ -131,9 +127,7 @@ def _validate(cfg: VLLMEvalConfig) -> None:
             raise ValueError(f"{field_name} must be greater than zero")
     required_gpus = cfg.tensor_parallel_size * cfg.data_parallel_size
     if required_gpus > cfg.gpus_per_node:
-        raise ValueError(
-            "tensor_parallel_size * data_parallel_size exceeds gpus_per_node"
-        )
+        raise ValueError("tensor_parallel_size * data_parallel_size exceeds gpus_per_node")
     if not 0 < cfg.gpu_memory_utilization <= 1:
         raise ValueError("gpu_memory_utilization must be in (0, 1]")
     if cfg.max_model_len is not None and cfg.max_model_len <= 0:
@@ -148,9 +142,7 @@ def _validate(cfg: VLLMEvalConfig) -> None:
 def render(cfg: VLLMEvalConfig) -> str:
     """Render a single-node Slurm job using lm-eval's standard vLLM backend."""
     _validate(cfg)
-    output_root = (
-        Path(cfg.output_dir).expanduser() if cfg.output_dir else Path.cwd() / "evals"
-    )
+    output_root = Path(cfg.output_dir).expanduser() if cfg.output_dir else Path.cwd() / "evals"
     output_dir = (output_root / cfg.model_name).resolve()
     log_dir = Path(cfg.log_dir).expanduser().resolve()
     lm_eval_args = {
@@ -212,9 +204,7 @@ def _sbatch(script: str, reservation: str, exclude: str) -> str:
 
 def submit(cfg: VLLMEvalConfig) -> str:
     """Render and submit one vLLM evaluation job."""
-    (Path(cfg.log_dir).expanduser() / cfg.model_name).mkdir(
-        parents=True, exist_ok=True
-    )
+    (Path(cfg.log_dir).expanduser() / cfg.model_name).mkdir(parents=True, exist_ok=True)
     job_id = _sbatch(render(cfg), cfg.reservation, cfg.exclude)
     print(f"  {cfg.model_name}: submitted → job {job_id}")
     return job_id

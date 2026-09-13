@@ -5,17 +5,13 @@ import os
 from pathlib import Path
 
 
-def create_data_prefix(
-    list_of_paths: list[str], *, follow_symlinks: bool = False
-) -> list[str]:
+def create_data_prefix(list_of_paths: list[str], *, follow_symlinks: bool = False) -> list[str]:
     list_of_bin_files: list[str] = []
     # Select all .bin files
     for path in list_of_paths:
         path_to_files = [
             os.path.join(dp, f)
-            for dp, _, fn in os.walk(
-                os.path.expanduser(path), followlinks=follow_symlinks
-            )
+            for dp, _, fn in os.walk(os.path.expanduser(path), followlinks=follow_symlinks)
             for f in fn
         ]
         list_of_bin_files.extend(
@@ -26,9 +22,10 @@ def create_data_prefix(
             ]
         )
 
-    return sorted({
-        bin_file[:-4] for bin_file in list_of_bin_files
-    })  # NOTE(tj.solergibert) Delete .bin extension to have file prefixes
+    return sorted(
+        {bin_file[:-4] for bin_file in list_of_bin_files}
+    )  # NOTE(tj.solergibert) Delete .bin extension to have file prefixes
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

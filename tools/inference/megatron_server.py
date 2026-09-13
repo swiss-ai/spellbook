@@ -72,16 +72,14 @@ class MegatronServerConfig:
 
 def _is_megatron_url(value: str) -> bool:
     parsed = urlparse(value)
-    return (
-        parsed.scheme in {"git", "http", "https", "ssh"} and bool(parsed.netloc)
-    ) or (value.startswith("git@") and ":" in value)
+    return (parsed.scheme in {"git", "http", "https", "ssh"} and bool(parsed.netloc)) or (
+        value.startswith("git@") and ":" in value
+    )
 
 
 def _validate(cfg: MegatronServerConfig) -> None:
     if not _JOB_NAME.fullmatch(cfg.name):
-        raise ValueError(
-            "name may contain only letters, numbers, dots, underscores, and hyphens"
-        )
+        raise ValueError("name may contain only letters, numbers, dots, underscores, and hyphens")
     for field_name in (
         "ckpt_step",
         "tensor_parallel_size",
@@ -116,9 +114,7 @@ def _validate(cfg: MegatronServerConfig) -> None:
             "megatron_container_path must be a shell-safe absolute path with at least two components"
         )
     model_parallel_size = (
-        cfg.tensor_parallel_size
-        * cfg.pipeline_parallel_size
-        * cfg.expert_parallel_size
+        cfg.tensor_parallel_size * cfg.pipeline_parallel_size * cfg.expert_parallel_size
     )
     total_tasks = cfg.nodes * cfg.gpus_per_node
     if total_tasks % model_parallel_size != 0:
@@ -200,10 +196,7 @@ def _server_args(cfg: MegatronServerConfig) -> list[str]:
 def _shell_double_quote(value: str) -> str:
     """Quote one value for the inner bash script embedded in single quotes."""
     escaped = (
-        value.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("$", "\\$")
-        .replace("`", "\\`")
+        value.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("`", "\\`")
     )
     return f'"{escaped}"'
 
@@ -222,13 +215,9 @@ def render(cfg: MegatronServerConfig) -> str:
         {
             "log_dir": str(Path(cfg.log_dir).expanduser().resolve()),
             "total_tasks": cfg.nodes * cfg.gpus_per_node,
-            "megatron_path": (
-                "" if megatron_url else str(Path(cfg.megatron_path).expanduser())
-            ),
+            "megatron_path": ("" if megatron_url else str(Path(cfg.megatron_path).expanduser())),
             "megatron_url": megatron_url,
-            "megatron_cache_key": hashlib.sha256(
-                cfg.megatron_path.encode()
-            ).hexdigest()[:16],
+            "megatron_cache_key": hashlib.sha256(cfg.megatron_path.encode()).hexdigest()[:16],
             "megatron_worktree_key": hashlib.sha256(
                 f"{cfg.megatron_path}\0{cfg.megatron_commit}".encode()
             ).hexdigest()[:16],
@@ -240,9 +229,7 @@ def render(cfg: MegatronServerConfig) -> str:
 
 
 def _sbatch(script: str) -> str:
-    result = subprocess.run(
-        ["sbatch"], input=script, capture_output=True, text=True, check=True
-    )
+    result = subprocess.run(["sbatch"], input=script, capture_output=True, text=True, check=True)
     return result.stdout.strip().split()[-1]
 
 

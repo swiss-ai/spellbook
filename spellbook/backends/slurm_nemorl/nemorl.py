@@ -42,9 +42,7 @@ class SlurmNemoRLBackend:
     # per-step rollout counts. sft and dpo train on a fixed dataset and have
     # neither (examples/configs/{sft,dpo}.yaml). Extend in a subclass if a new
     # NeMo-RL algorithm generates.
-    GENERATION_ALGORITHMS: ClassVar[frozenset[str]] = frozenset(
-        {"grpo", "ppo", "distillation"}
-    )
+    GENERATION_ALGORITHMS: ClassVar[frozenset[str]] = frozenset({"grpo", "ppo", "distillation"})
 
     account: str
     partition: str
@@ -107,8 +105,7 @@ class SlurmNemoRLBackend:
         world_size = self.nodes * self.gpus_per_node
         if world_size % model_parallel_size:
             raise ValueError(
-                f"world_size={world_size} must be divisible by TP×PP×CP "
-                f"({model_parallel_size})."
+                f"world_size={world_size} must be divisible by TP×PP×CP ({model_parallel_size})."
             )
         data_parallel_size = world_size // model_parallel_size
         if (
@@ -287,9 +284,7 @@ class SlurmNemoRLBackend:
         self.validate(exp)
         output_dir.mkdir(parents=True, exist_ok=True)
         path = output_dir / f"{exp.name}.yaml"
-        path.write_text(
-            yaml.safe_dump(self.build_recipe(exp), sort_keys=False, width=10**6)
-        )
+        path.write_text(yaml.safe_dump(self.build_recipe(exp), sort_keys=False, width=10**6))
         return path
 
     def _entrypoint(self, exp: NemoRLExperiment) -> str:
@@ -317,9 +312,7 @@ class SlurmNemoRLBackend:
         )
         body = env.get_template("nemorl.sh.j2").render(
             overlay_paths=list(exp.overlay_paths),
-            overlay_bin_paths=[
-                f"{p}/bin" for p in exp.overlay_paths if (Path(p) / "bin").is_dir()
-            ],
+            overlay_bin_paths=[f"{p}/bin" for p in exp.overlay_paths if (Path(p) / "bin").is_dir()],
             nemo_rl_path=exp.nemo_rl_path,
             bridge_src_path=exp.bridge_src_path,
             megatron_path=exp.megatron_path,
@@ -362,8 +355,7 @@ class SlurmNemoRLBackend:
             ray_port=self.ray_port,
             srun_extra_args=self.srun_extra_args,
             vetnode=self.vetnode,
-            vetnode_config=self.vetnode_config
-            or str(_SHARED_TEMPLATE_DIR / "vetnode-config.yaml"),
+            vetnode_config=self.vetnode_config or str(_SHARED_TEMPLATE_DIR / "vetnode-config.yaml"),
             vetnode_install=self.vetnode_install,
             vetnode_skip_install=self.vetnode_skip_install,
             vetnode_verbose=self.vetnode_verbose,
@@ -420,20 +412,14 @@ class SlurmNemoRLBackend:
                 f"--gres=gpu:{self.gpus_per_node}",
                 *self.srun_extra_args.split(),
                 *(["--environment", self.container] if self.container else []),
-                *(
-                    [f"--container-mounts={self.container_mounts}"]
-                    if self.container_mounts
-                    else []
-                ),
+                *([f"--container-mounts={self.container_mounts}"] if self.container_mounts else []),
                 "bash",
                 script,
                 "standalone",
             ]
         else:
             cmd = ["sbatch", "--parsable", str(Path(script).with_suffix(".sbatch"))]
-        return subprocess.run(
-            cmd, capture_output=True, text=True, check=True
-        ).stdout.strip()
+        return subprocess.run(cmd, capture_output=True, text=True, check=True).stdout.strip()
 
 
 __all__ = ["SlurmNemoRLBackend"]

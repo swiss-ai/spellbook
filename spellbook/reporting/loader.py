@@ -25,13 +25,9 @@ def load_report(path: str | Path, variable: str | None = None) -> Report:
     if variable:
         report = getattr(module, variable, None)
         if not isinstance(report, Report):
-            raise ValueError(
-                f"{definition} does not define report variable {variable!r}"
-            )
+            raise ValueError(f"{definition} does not define report variable {variable!r}")
     else:
-        candidates = [
-            value for value in vars(module).values() if isinstance(value, Report)
-        ]
+        candidates = [value for value in vars(module).values() if isinstance(value, Report)]
         unique = list({id(value): value for value in candidates}.values())
         if len(unique) != 1:
             raise ValueError(

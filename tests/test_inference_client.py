@@ -33,9 +33,7 @@ class InferenceClientTest(unittest.TestCase):
 
     def test_extracts_completion_and_chat_text(self) -> None:
         self.assertEqual(_text({"choices": [{"text": "done"}]}), "done")
-        self.assertEqual(
-            _text({"choices": [{"message": {"content": "answer"}}]}), "answer"
-        )
+        self.assertEqual(_text({"choices": [{"message": {"content": "answer"}}]}), "answer")
 
     def test_interactive_sends_multiple_prompts_in_one_process(self) -> None:
         responses = [

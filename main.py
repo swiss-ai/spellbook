@@ -104,9 +104,7 @@ def cmd_list(args: argparse.Namespace) -> None:
 
     if args.all:
         # Every field in the dataclass, alphabetically (excluding name which is first)
-        extra_cols = sorted(
-            k for k in exps[0].to_dict() if k != "name" and k != "training_args"
-        )
+        extra_cols = sorted(k for k in exps[0].to_dict() if k != "name" and k != "training_args")
     elif args.columns:
         extra_cols = [c.strip() for c in args.columns.split(",")]
     else:
@@ -129,9 +127,7 @@ def cmd_list(args: argparse.Namespace) -> None:
     col_w: dict[str, int] = {}
     for c in cols:
         vals = [str(e.to_dict().get(c, "")) for e in exps]
-        col_w[c] = (
-            max(len(c) + (2 if c in changed_set else 0), max(len(v) for v in vals)) + 2
-        )
+        col_w[c] = max(len(c) + (2 if c in changed_set else 0), max(len(v) for v in vals)) + 2
 
     # Header: changed columns get a * marker
     header_parts = []
@@ -180,9 +176,7 @@ def cmd_csv(args: argparse.Namespace) -> None:
     if args.changed:
         changed = set(sweep.changed_fields()) - _CSV_EXCLUDE
         cols = ["name"] + sorted(changed)
-        rows = [
-            _with_size(exp, {c: exp.to_dict().get(c) for c in cols}) for exp in exps
-        ]
+        rows = [_with_size(exp, {c: exp.to_dict().get(c) for c in cols}) for exp in exps]
         class_name = type(exps[0]).__name__
         default_path = exp_dir / f"{class_name}.changed.csv"
     else:
@@ -252,13 +246,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Only include columns that differ across experiments; output named <ClassName>.changed.csv",
     )
-    p_csv.add_argument(
-        "--output", default=None, metavar="PATH", help="Override output file path"
-    )
+    p_csv.add_argument("--output", default=None, metavar="PATH", help="Override output file path")
 
-    p_report = sub.add_parser(
-        "report", help="Fetch WandB histories and render a report"
-    )
+    p_report = sub.add_parser("report", help="Fetch WandB histories and render a report")
     p_report.add_argument("definition", help="Experiment or evaluation Python file")
     p_report.add_argument(
         "--variable",
@@ -267,9 +257,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Report variable to load when the module defines more than one",
     )
     p_report.add_argument("--output-dir", default="reports", metavar="DIR")
-    p_report.add_argument(
-        "--refresh", action="store_true", help="Refresh cached WandB histories"
-    )
+    p_report.add_argument("--refresh", action="store_true", help="Refresh cached WandB histories")
     p_report.add_argument(
         "--plan",
         action="store_true",

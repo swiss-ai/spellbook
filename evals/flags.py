@@ -64,10 +64,7 @@ def _quote_value(value: str) -> str:
     if _SHELL_SAFE.fullmatch(value):
         return value
     escaped = (
-        value.replace("\\", "\\\\")
-        .replace('"', '\\"')
-        .replace("$", "\\$")
-        .replace("`", "\\`")
+        value.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$").replace("`", "\\`")
     )
     return f'"{escaped}"'
 

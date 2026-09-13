@@ -16,29 +16,31 @@ Minimal configuration shape:
 ```python
 from tools.inference.megatron_server import MegatronServerConfig, submit
 
-submit(MegatronServerConfig(
-    name="my-model-step-3000",
-    checkpoint="/path/to/checkpoint/root",
-    ckpt_step=3000,
-    tokenizer_model="/path/to/tokenizer",
-    megatron_path="/path/to/Megatron-LM",  # Local checkout or Git URL.
-    megatron_commit="<commit-or-branch>",
-    tensor_parallel_size=1,
-    expert_parallel_size=8,
-    nodes=2,
-    gpus_per_node=4,
-    megatron_args={
-        "moe_token_dispatcher_type": "alltoall",
-        "moe_router_load_balancing_type": "quantile_balancing",
-        "moe_router_quantile_balancing_method": "histogram",
-        "attention_output_gate": True,
-    },
-    account="infra01",
-    partition="normal",
-    container_edf="apertus2-alps4-temp",
-    container_mounts="${SCRATCH}:${SCRATCH},${HOME}:${HOME},/capstor:/capstor,/iopsstor:/iopsstor",
-    srun_extra_args="--network=disable_rdzv_get",
-))
+submit(
+    MegatronServerConfig(
+        name="my-model-step-3000",
+        checkpoint="/path/to/checkpoint/root",
+        ckpt_step=3000,
+        tokenizer_model="/path/to/tokenizer",
+        megatron_path="/path/to/Megatron-LM",  # Local checkout or Git URL.
+        megatron_commit="<commit-or-branch>",
+        tensor_parallel_size=1,
+        expert_parallel_size=8,
+        nodes=2,
+        gpus_per_node=4,
+        megatron_args={
+            "moe_token_dispatcher_type": "alltoall",
+            "moe_router_load_balancing_type": "quantile_balancing",
+            "moe_router_quantile_balancing_method": "histogram",
+            "attention_output_gate": True,
+        },
+        account="infra01",
+        partition="normal",
+        container_edf="apertus2-alps4-temp",
+        container_mounts="${SCRATCH}:${SCRATCH},${HOME}:${HOME},/capstor:/capstor,/iopsstor:/iopsstor",
+        srun_extra_args="--network=disable_rdzv_get",
+    )
+)
 ```
 
 Use `render(cfg)` to inspect the sbatch script without submitting it. `nodes * gpus_per_node` determines the total Slurm task/world count; configure tensor, pipeline, and expert parallelism so the model is actually sharded across that world. Keep `host=None` (the default) for multi-node jobs: Megatron then advertises each compute node's routable hostname while its rank-0 HTTP frontend still binds to all interfaces.

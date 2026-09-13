@@ -110,9 +110,7 @@ def _validate(cfg: GymDataConfig) -> None:
             f"  git -C {cfg.nemo_rl_path} submodule update --init 3rdparty/Gym-workspace/Gym"
         )
     if cfg.validation_rows and not cfg.dataset_name:
-        raise ValueError(
-            "validation_rows needs dataset_name (there is nothing to split)"
-        )
+        raise ValueError("validation_rows needs dataset_name (there is nothing to split)")
     if cfg.validation_rows < 0:
         raise ValueError("validation_rows must not be negative")
 

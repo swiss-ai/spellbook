@@ -43,9 +43,7 @@ class ReportingTest(unittest.TestCase):
             where={"total_params": lambda value: 1e9 <= value <= 6e9},
             exclude=["router-*"],
         )
-        self.assertEqual(
-            [model["name"] for model in selector.select(models)], ["1.5b", "5b"]
-        )
+        self.assertEqual([model["name"] for model in selector.select(models)], ["1.5b", "5b"])
 
     def test_missing_explicit_model_is_an_error(self) -> None:
         with self.assertRaisesRegex(ValueError, "22b"):
@@ -120,9 +118,7 @@ class KDAExperiment(MegatronExperiment):
     linear_num_value_heads: int = 4
     linear_attention_full_rank_output_gate: bool = False
     linear_conv_kernel_dim: int = 4
-    linear_attention_freq: list[int] = dataclasses.field(
-        default_factory=lambda: [1] * 9 + [0]
-    )
+    linear_attention_freq: list[int] = dataclasses.field(default_factory=lambda: [1] * 9 + [0])
     moe_latent_size: int | None = 384
 
 
@@ -152,6 +148,4 @@ class KDAParameterCountTest(unittest.TestCase):
             standard = dataclasses.replace(kda, experimental_attention_variant="")
 
         self.assertNotEqual(kda.parameter_counts(), standard.parameter_counts())
-        self.assertGreater(
-            kda.parameter_counts()["total_B"], kda.parameter_counts()["active_B"]
-        )
+        self.assertGreater(kda.parameter_counts()["total_B"], kda.parameter_counts()["active_B"])

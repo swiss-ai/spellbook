@@ -13,7 +13,8 @@ These instructions apply to the whole repository.
   - list: python main.py list experiments/<name>/experiment.py
   - render: python main.py render experiments/<name>/experiment.py
   - submit: python main.py submit experiments/<name>/experiment.py
-- Type and lint checks:
+- Formatting, type, and lint checks:
+  - uv run ruff format .
   - uv run ty check
   - uv run ruff check .
 

@@ -22,9 +22,7 @@ class WandbGroup:
     project: str
     group: str | None = None
     runs: Sequence[str] = ()
-    run_namespaces: Mapping[str, Sequence[str]] = dataclasses.field(
-        default_factory=dict
-    )
+    run_namespaces: Mapping[str, Sequence[str]] = dataclasses.field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if self.project.count("/") != 1:
@@ -61,9 +59,7 @@ class Models:
             found = {str(_model_values(model).get("name", "")) for model in selected}
             missing = [name for name in self.names if name not in found]
             if missing:
-                raise ValueError(
-                    f"Selected model IDs were not found: {', '.join(missing)}"
-                )
+                raise ValueError(f"Selected model IDs were not found: {', '.join(missing)}")
         return selected
 
 
@@ -81,10 +77,7 @@ def _model_values(model: Any) -> Mapping[str, Any]:
     if hasattr(model, "to_dict"):
         return model.to_dict()
     if dataclasses.is_dataclass(model) and not isinstance(model, type):
-        return {
-            field.name: getattr(model, field.name)
-            for field in dataclasses.fields(model)
-        }
+        return {field.name: getattr(model, field.name) for field in dataclasses.fields(model)}
     return vars(model)
 
 
@@ -111,7 +104,9 @@ class ModelMetadata:
         source = None
         if hasattr(experiment, "parameter_counts"):
             counts = experiment.parameter_counts()
-            source = f"{type(experiment).__module__}.{type(experiment).__qualname__}.parameter_counts"
+            source = (
+                f"{type(experiment).__module__}.{type(experiment).__qualname__}.parameter_counts"
+            )
         else:
             counts = None
         if counts is not None:
@@ -204,9 +199,7 @@ class MetricCurves:
     x: str = "tokens"
     ema: float | None = 0.9
     better: Mapping[str, str] = dataclasses.field(default_factory=dict)
-    y_limits: Mapping[str, tuple[float, float]] = dataclasses.field(
-        default_factory=dict
-    )
+    y_limits: Mapping[str, tuple[float, float]] = dataclasses.field(default_factory=dict)
     title: str | None = None
 
 

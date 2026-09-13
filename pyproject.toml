@@ -29,7 +29,13 @@ tools = ["README.md"]
 "spellbook.backends.slurm_nemorl" = ["*.j2"]
 
 [tool.ruff]
+line-length = 100
 extend-exclude = ["spellbook/backends/slurm_megatron/memory_estimator"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
 
 [tool.ty.src]
 exclude = ["spellbook/backends/slurm_megatron/memory_estimator"]

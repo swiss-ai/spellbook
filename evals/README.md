@@ -28,34 +28,38 @@ from evals.hf_conversion import HFConversionConfig, submit as submit_conversion
 from evals.vllm_eval import VLLMEvalConfig, submit as submit_eval
 
 hf_model = "/path/to/hf-checkpoint"
-conversion_job = submit_conversion(HFConversionConfig(
-    hfconverter_root="https://github.com/swiss-ai/hfconverter.git",
-    hfconverter_commit="apertus2/main",
-    checkpoint_dir="/path/to/torch_dist/iter_0003000",
-    output_dir=hf_model,
-    tokenizer_dir="/path/to/tokenizer",
-    account="infra01",
-    partition="normal",
-))
+conversion_job = submit_conversion(
+    HFConversionConfig(
+        hfconverter_root="https://github.com/swiss-ai/hfconverter.git",
+        hfconverter_commit="apertus2/main",
+        checkpoint_dir="/path/to/torch_dist/iter_0003000",
+        output_dir=hf_model,
+        tokenizer_dir="/path/to/tokenizer",
+        account="infra01",
+        partition="normal",
+    )
+)
 
-submit_eval(VLLMEvalConfig(
-    model_name="apertus-8b-step-3000",
-    model=hf_model,
-    tokenizer="/path/to/tokenizer",
-    tasks=["hellaswag", "arc_easy"],
-    batch_size="auto",
-    max_model_len=8192,
-    tensor_parallel_size=1,
-    data_parallel_size=4,
-    output_dir="/path/to/results",
-    account="infra01",
-    partition="normal",
-    gpus_per_node=4,
-    container_edf="apertus2-vllm",
-    container_mounts="${SCRATCH}:${SCRATCH},${HOME}:${HOME}",
-    srun_extra_args="--network=disable_rdzv_get",
-    conversion_job_id=conversion_job or "",
-))
+submit_eval(
+    VLLMEvalConfig(
+        model_name="apertus-8b-step-3000",
+        model=hf_model,
+        tokenizer="/path/to/tokenizer",
+        tasks=["hellaswag", "arc_easy"],
+        batch_size="auto",
+        max_model_len=8192,
+        tensor_parallel_size=1,
+        data_parallel_size=4,
+        output_dir="/path/to/results",
+        account="infra01",
+        partition="normal",
+        gpus_per_node=4,
+        container_edf="apertus2-vllm",
+        container_mounts="${SCRATCH}:${SCRATCH},${HOME}:${HOME}",
+        srun_extra_args="--network=disable_rdzv_get",
+        conversion_job_id=conversion_job or "",
+    )
+)
 ```
 
 Git hfconverter sources use locked caches below `${SCRATCH}/tmp` (or `~/.cache/spellbook/tmp`), completed conversions are reused, and `recreate=True` explicitly replaces partial or completed outputs.

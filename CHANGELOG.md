@@ -51,6 +51,7 @@ Notable changes to Spellbook are documented here.
 
 ### Changed
 
+- Python formatting is standardized on Ruff with a 100-character line length.
 - Megatron auto-requeue uses shared backend templates that support both
   log-regex completion and NeMo-RL checkpoint-step completion.
 - Scheduler and Ray launcher logs for NeMo-RL, plus NeMo Gym preparation logs,

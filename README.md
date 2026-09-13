@@ -23,6 +23,7 @@ source .venv/bin/activate
 Optional quality checks:
 
 ```bash
+uv run ruff format --check .
 uv run ruff check .
 uv run ty check
 ```
@@ -260,7 +261,7 @@ pip install --upgrade --no-deps "quack-kernels[cu13]==0.4.1"
 backend = SlurmBackend(
     account="a139",
     partition="normal",
-    nodes=None,          # auto-derive from experiment.num_gpus / gpus_per_node
+    nodes=None,  # auto-derive from experiment.num_gpus / gpus_per_node
     gpus_per_node=4,
     run_time="01:00:00",
     extra={
@@ -369,19 +370,21 @@ Standalone operational launchers live under [`tools/`](tools/). They are separat
 ```python
 from tools.inference.megatron_server import MegatronServerConfig, submit
 
-submit(MegatronServerConfig(
-    name="my-model-step-3000",
-    checkpoint="/path/to/checkpoints/my-model",
-    ckpt_step=3000,
-    tokenizer_model="/path/to/tokenizer",
-    megatron_path="/path/to/Megatron-LM",  # Or a Git URL.
-    megatron_commit="<commit-or-branch>",
-    expert_parallel_size=8,
-    nodes=2,
-    gpus_per_node=4,
-    account="infra01",
-    partition="normal",
-))
+submit(
+    MegatronServerConfig(
+        name="my-model-step-3000",
+        checkpoint="/path/to/checkpoints/my-model",
+        ckpt_step=3000,
+        tokenizer_model="/path/to/tokenizer",
+        megatron_path="/path/to/Megatron-LM",  # Or a Git URL.
+        megatron_commit="<commit-or-branch>",
+        expert_parallel_size=8,
+        nodes=2,
+        gpus_per_node=4,
+        account="infra01",
+        partition="normal",
+    )
+)
 ```
 
 Interact with it using curl or the dependency-free Python client:
@@ -401,16 +404,18 @@ See [`tools/inference/examples/megatron_server.py`](tools/inference/examples/meg
 ```python
 from tools.merge import MegatronCheckpointMergeConfig, submit
 
-submit(MegatronCheckpointMergeConfig(
-    name="model-steps-1000-2000",
-    checkpoints=["/path/to/checkpoints/model"],
-    checkpoint_steps=[1000, 2000],
-    output="/path/to/checkpoints/model-merged",
-    megatron_path="/path/to/Megatron-LM",
-    workers_per_node=4,
-    account="infra01",
-    partition="normal",
-))
+submit(
+    MegatronCheckpointMergeConfig(
+        name="model-steps-1000-2000",
+        checkpoints=["/path/to/checkpoints/model"],
+        checkpoint_steps=[1000, 2000],
+        output="/path/to/checkpoints/model-merged",
+        megatron_path="/path/to/Megatron-LM",
+        workers_per_node=4,
+        account="infra01",
+        partition="normal",
+    )
+)
 ```
 
 See [`tools/merge/README.md`](tools/merge/README.md) for container and backend options.
@@ -521,10 +526,13 @@ main.py
 
 ```bash
 uv sync
+uv run ruff format --check .
 uv run python -m unittest discover -v
 uv run ruff check .
 uv run ty check
 ```
+
+Python formatting uses Ruff with a 100-character line length.
 
 The optional Megatron-dependent memory-estimator subtree is excluded from local
 Ruff and ty checks because its imports are supplied only by the runtime Megatron

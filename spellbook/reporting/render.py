@@ -102,15 +102,11 @@ def render_report(
         for item in series
     ]
     manifest["artifacts"] = [dataclasses.asdict(artifact) for artifact in artifacts]
-    (root / "report.json").write_text(
-        json.dumps(manifest, indent=2, default=str) + "\n"
-    )
+    (root / "report.json").write_text(json.dumps(manifest, indent=2, default=str) + "\n")
     return root
 
 
-def render_plots(
-    report: Report, series: Sequence[RunSeries], root: Path
-) -> list[Artifact]:
+def render_plots(report: Report, series: Sequence[RunSeries], root: Path) -> list[Artifact]:
     artifacts = []
     for index, plot in enumerate(report.plots, start=1):
         stem = f"{index:02d}-{_slug(type(plot).__name__)}"
@@ -175,9 +171,7 @@ def _loss_alignment(
                 linewidth=0.7,
                 zorder=4,
             )
-            endpoints[column].append(
-                (float(x[-1]), float(y[-1]), item.model, palette[item.model])
-            )
+            endpoints[column].append((float(x[-1]), float(y[-1]), item.model, palette[item.model]))
 
     titles = {
         "tokens": "Same consumed tokens",
@@ -202,9 +196,7 @@ def _loss_alignment(
         if plot.ylim:
             axis.set_ylim(*plot.ylim)
         finish_axis(axis)
-    axes[0, 0].set_ylabel(
-        f"{plot.metric} (EMA {plot.ema})" if plot.ema else plot.metric
-    )
+    axes[0, 0].set_ylabel(f"{plot.metric} (EMA {plot.ema})" if plot.ema else plot.metric)
     handles, labels = axes[0, 0].get_legend_handles_labels()
     fig.legend(
         handles,
@@ -237,9 +229,7 @@ def _learning_rate_bowl(
         if learning_rate is None or smoothed is None or raw is None:
             continue
         group = str(item.config.get(plot.group_by, "all")) if plot.group_by else "all"
-        grouped.setdefault(group, []).append(
-            (float(learning_rate), smoothed, raw, item.model)
-        )
+        grouped.setdefault(group, []).append((float(learning_rate), smoothed, raw, item.model))
     if not grouped:
         raise ValueError(
             f"No runs contain {plot.learning_rate!r} and {plot.metric!r} for the LR bowl"
@@ -316,9 +306,7 @@ def _learning_rate_bowl(
         finish_axis(axis)
     for index in range(len(grouped), rows * columns):
         axes.flat[index].set_visible(False)
-    axes.flat[0].set_ylabel(
-        f"{plot.metric} (EMA {plot.ema})" if plot.ema else plot.metric
-    )
+    axes.flat[0].set_ylabel(f"{plot.metric} (EMA {plot.ema})" if plot.ema else plot.metric)
     handles, labels = axes.flat[0].get_legend_handles_labels()
     fig.legend(
         handles,
@@ -329,9 +317,7 @@ def _learning_rate_bowl(
     )
     title = plot.title or "Learning-rate bowls"
     fig.suptitle(title, fontsize=15, y=0.995)
-    fig.subplots_adjust(
-        left=0.07, right=0.99, top=0.76, bottom=0.13, hspace=0.40, wspace=0.14
-    )
+    fig.subplots_adjust(left=0.07, right=0.99, top=0.76, bottom=0.13, hspace=0.40, wspace=0.14)
     _save(fig, root, stem)
     return Artifact(title, stem)
 
@@ -345,9 +331,7 @@ def _metric_curves(
     metrics = list(plot.metrics)
     columns = min(3, max(1, len(metrics)))
     rows = math.ceil(len(metrics) / columns)
-    fig, axes = plt.subplots(
-        rows, columns, figsize=(5.2 * columns, 4.0 * rows), squeeze=False
-    )
+    fig, axes = plt.subplots(rows, columns, figsize=(5.2 * columns, 4.0 * rows), squeeze=False)
     palette = model_colors([item.model for item in series])
 
     for index, metric in enumerate(metrics):
@@ -417,9 +401,7 @@ def _metric_curves(
     )
     title = plot.title or "Training metrics"
     fig.suptitle(title, fontsize=15, y=0.995)
-    fig.subplots_adjust(
-        left=0.07, right=0.99, top=0.78, bottom=0.10, hspace=0.40, wspace=0.20
-    )
+    fig.subplots_adjust(left=0.07, right=0.99, top=0.78, bottom=0.10, hspace=0.40, wspace=0.20)
     _save(fig, root, stem)
     return Artifact(title, stem)
 
@@ -432,9 +414,7 @@ def _endpoint_laws(
     stem: str,
 ) -> Artifact:
     metadata = {model.name: model for model in report.selected_models()}
-    endpoints = {
-        item.model: endpoint(item.frame, plot.metric, plot.ema) for item in series
-    }
+    endpoints = {item.model: endpoint(item.frame, plot.metric, plot.ema) for item in series}
     x_specs = []
     for key in plot.x:
         values = []
@@ -448,9 +428,7 @@ def _endpoint_laws(
         if len(values) >= 5:
             x_specs.append((key, models, values))
     if not x_specs:
-        raise ValueError(
-            "Endpoint scaling laws require at least five points with x metadata"
-        )
+        raise ValueError("Endpoint scaling laws require at least five points with x metadata")
 
     fig, axes = plt.subplots(
         2,
@@ -465,9 +443,7 @@ def _endpoint_laws(
         x = np.asarray([value[0] for value in values], dtype=float)
         y = np.asarray([value[1] for value in values], dtype=float)
         if np.allclose(y, y[0]):
-            raise ValueError(
-                f"Cannot fit {key}: every endpoint has the same {plot.metric}"
-            )
+            raise ValueError(f"Cannot fit {key}: every endpoint has the same {plot.metric}")
         floor_upper = max(1e-8, float(y.min()) - 1e-6)
         params, covariance = curve_fit(
             _power_law,
@@ -519,8 +495,7 @@ def _endpoint_laws(
         top.text(
             0.04,
             0.06,
-            f"E={params[0]:.4f}  |  A={params[1]:.4f}  |  α={params[2]:.4f}\n"
-            f"R²={r2:.5f}",
+            f"E={params[0]:.4f}  |  A={params[1]:.4f}  |  α={params[2]:.4f}\nR²={r2:.5f}",
             transform=top.transAxes,
             fontsize=9,
             bbox={
@@ -550,9 +525,7 @@ def _endpoint_laws(
     title = plot.title or "Final-checkpoint one-dimensional power laws"
     title = f"{title}\nL(x) = E + A x^(-α); final {plot.metric}, EMA {plot.ema}"
     fig.suptitle(title, fontsize=15, y=0.985)
-    fig.subplots_adjust(
-        left=0.075, right=0.985, top=0.85, bottom=0.10, hspace=0.10, wspace=0.16
-    )
+    fig.subplots_adjust(left=0.075, right=0.985, top=0.85, bottom=0.10, hspace=0.10, wspace=0.16)
     _save(fig, root, stem)
     (root / f"{stem}.json").write_text(json.dumps(fit_payload, indent=2) + "\n")
     return Artifact(title, stem)
@@ -566,9 +539,7 @@ def _chinchilla_law(
     stem: str,
 ) -> Artifact:
     if plot.parameter not in {"total_params", "active_params"}:
-        raise ValueError(
-            "ChinchillaScalingLaw.parameter must be 'total_params' or 'active_params'"
-        )
+        raise ValueError("ChinchillaScalingLaw.parameter must be 'total_params' or 'active_params'")
     if plot.samples_per_model < 2:
         raise ValueError("samples_per_model must be at least 2")
 
@@ -625,21 +596,13 @@ def _chinchilla_law(
     r2 = 1.0 - float(np.sum(residual**2)) / denominator
     warnings = []
     if fit[2] <= 0.0011:
-        warnings.append(
-            "alpha reached its lower bound; the model-size term is not identified"
-        )
+        warnings.append("alpha reached its lower bound; the model-size term is not identified")
     elif fit[2] >= 4.999:
-        warnings.append(
-            "alpha reached its upper bound; the model-size term is not identified"
-        )
+        warnings.append("alpha reached its upper bound; the model-size term is not identified")
     if fit[4] <= 0.0011:
-        warnings.append(
-            "beta reached its lower bound; the token term is not identified"
-        )
+        warnings.append("beta reached its lower bound; the token term is not identified")
     elif fit[4] >= 4.999:
-        warnings.append(
-            "beta reached its upper bound; the token term is not identified"
-        )
+        warnings.append("beta reached its upper bound; the token term is not identified")
 
     fig, axes = plt.subplots(1, 2, figsize=(12.2, 5.4))
     palette = model_colors([item.model for item in series])
@@ -716,10 +679,7 @@ def _chinchilla_law(
     )
     parameter_label = _law_label(plot.parameter)
     title = plot.title or "Chinchilla-style trajectory scaling law"
-    title = (
-        f"{title}\nL(N,D) = E + A N^(-α) + B D^(-β); "
-        f"N={parameter_label}, D=consumed tokens (B)"
-    )
+    title = f"{title}\nL(N,D) = E + A N^(-α) + B D^(-β); N={parameter_label}, D=consumed tokens (B)"
     if plot.min_tokens:
         title += f"; fit uses D >= {plot.min_tokens:g}B"
     fig.suptitle(title, fontsize=12.5, y=0.99)
@@ -749,9 +709,7 @@ def _chinchilla_law(
     return Artifact(title, stem)
 
 
-def _eval_macro(
-    plot: EvalMacro, series: Sequence[RunSeries], root: Path, stem: str
-) -> Artifact:
+def _eval_macro(plot: EvalMacro, series: Sequence[RunSeries], root: Path, stem: str) -> Artifact:
     groups = list(plot.task_groups)
     columns = min(3, max(1, len(groups)))
     rows = math.ceil(len(groups) / columns)
@@ -808,9 +766,7 @@ def _eval_macro(
                 linewidth=0.8,
                 zorder=4,
             )
-        axis.set_title(
-            f"{group}\n{_metric_summary(plot.task_groups[group])}", fontsize=8.5
-        )
+        axis.set_title(f"{group}\n{_metric_summary(plot.task_groups[group])}", fontsize=8.5)
         axis.set_xticks(x, [item.model for item in series], rotation=30, ha="right")
         finish_axis(axis)
     for index in range(len(groups), rows * columns):
@@ -882,8 +838,7 @@ def _eval_trajectories(
         for column, axis_name in enumerate(axes_names):
             axis = axes[row, column]
             axis.set_title(
-                f"{group} by {_axis_label(axis_name)}\n"
-                f"{_metric_summary(plot.task_groups[group])}",
+                f"{group} by {_axis_label(axis_name)}\n{_metric_summary(plot.task_groups[group])}",
                 fontsize=9,
             )
             axis.set_xlabel(_axis_label(axis_name))
@@ -924,17 +879,11 @@ def _eval_trajectories(
 def _task_heatmap(
     plot: TaskHeatmap, series: Sequence[RunSeries], root: Path, stem: str
 ) -> Artifact:
-    tasks = [
-        (group, metric)
-        for group, metrics in plot.task_groups.items()
-        for metric in metrics
-    ]
+    tasks = [(group, metric) for group, metrics in plot.task_groups.items() for metric in metrics]
     values = np.asarray(
         [
             [
-                value
-                if (value := endpoint(item.frame, metric, None)) is not None
-                else np.nan
+                value if (value := endpoint(item.frame, metric, None)) is not None else np.nan
                 for item in series
             ]
             for _, metric in tasks
@@ -960,9 +909,7 @@ def _task_heatmap(
     )
     table.to_csv(root / f"{stem}.csv")
     if plot.grouped:
-        _grouped_task_heatmap(
-            plot, series, values, scaled, normalized, title, root, stem
-        )
+        _grouped_task_heatmap(plot, series, values, scaled, normalized, title, root, stem)
         return Artifact(title, stem)
 
     fig_height = max(4.5, 0.42 * len(tasks) + 1.8)
@@ -977,9 +924,7 @@ def _task_heatmap(
     axis.tick_params(length=0)
     axis.grid(False)
     axis.set_title(title, fontsize=15, pad=14)
-    fig.colorbar(
-        image, ax=axis, fraction=0.025, pad=0.02, label="within-task relative score"
-    )
+    fig.colorbar(image, ax=axis, fraction=0.025, pad=0.02, label="within-task relative score")
     fig.subplots_adjust(left=0.34, right=0.96, top=0.93, bottom=0.08)
     _save(fig, root, stem)
     return Artifact(title, stem)
@@ -995,9 +940,7 @@ def _grouped_task_heatmap(
     root: Path,
     stem: str,
 ) -> None:
-    groups = [
-        (group, metrics) for group, metrics in plot.task_groups.items() if metrics
-    ]
+    groups = [(group, metrics) for group, metrics in plot.task_groups.items() if metrics]
     row_counts = [len(metrics) for _, metrics in groups]
     fig_height = max(4.0, 0.30 * sum(row_counts) + 0.30 * len(groups) + 1.2)
     fig, axes = plt.subplots(
@@ -1224,9 +1167,7 @@ def _adjust(value: float, baseline: float | None) -> float:
     if baseline is None:
         return value
     if not 0.0 <= baseline < 1.0 or not 0.0 <= value <= 1.0:
-        raise ValueError(
-            "Chance-adjusted metrics and baselines must use the [0, 1] scale"
-        )
+        raise ValueError("Chance-adjusted metrics and baselines must use the [0, 1] scale")
     return (value - baseline) / (1.0 - baseline)
 
 
@@ -1236,9 +1177,7 @@ def _eval_label(adjusted: bool, scale: float) -> str:
 
 
 def _metric_list(metrics: Sequence[str], group: str | None = None) -> str:
-    return textwrap.fill(
-        ", ".join(_metric_label(metric, group) for metric in metrics), width=58
-    )
+    return textwrap.fill(", ".join(_metric_label(metric, group) for metric in metrics), width=58)
 
 
 def _metric_summary(metrics: Sequence[str]) -> str:
@@ -1334,9 +1273,7 @@ def _heatmap_metric_label(metric: str, plot: TaskHeatmap) -> str:
     if not separator:
         return metric
     task, _, score = key.partition("/")
-    task_name = plot.task_labels.get(
-        task, TASK_LABELS.get(task, task.replace("_", " ").title())
-    )
+    task_name = plot.task_labels.get(task, TASK_LABELS.get(task, task.replace("_", " ").title()))
     if namespace in plot.namespace_labels:
         detail = plot.namespace_labels[namespace]
     else:
@@ -1358,10 +1295,7 @@ def _heatmap_metric_label(metric: str, plot: TaskHeatmap) -> str:
 
 def _max_metric_lines(task_groups: Mapping[str, Sequence[str]]) -> int:
     return max(
-        (
-            _metric_list(metrics, group).count("\n") + 1
-            for group, metrics in task_groups.items()
-        ),
+        (_metric_list(metrics, group).count("\n") + 1 for group, metrics in task_groups.items()),
         default=1,
     )
 

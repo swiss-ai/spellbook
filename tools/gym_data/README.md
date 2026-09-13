@@ -13,29 +13,36 @@ No GPU, one node. Every step is skipped when its output already exists.
 from tools.gym_data import GymDataConfig, submit
 
 NEMO_RL = "/users/<you>/open_source/Nemo-RL"
-submit(GymDataConfig(
-    name="gym-prep-instruction-following",
-    nemo_rl_path=NEMO_RL,
-    gym_home=f"{NEMO_RL}/3rdparty/Gym-workspace/Gym",
-    config_paths=[
-        "responses_api_models/vllm_model/configs/vllm_model_for_training.yaml",
-        "resources_servers/instruction_following/configs/instruction_following.yaml",
-    ],
-    venv_dir="$SCRATCH/tmp/nemo-gym-venvs",
-    nemo_rl_venv_dir="$SCRATCH/tmp/nemo-rl-venvs",
-    uv_cache_dir="$SCRATCH/tmp/uv-cache-nemo-gym",
-    scratch_root="$SCRATCH/tmp/nemo-gym-root",
-    output_dir="$SCRATCH/tmp/nemo-gym-data-collated",
-    dataset_name="instruction_following",
-    account="infra01", partition="normal", container="<edf>",
-))
+submit(
+    GymDataConfig(
+        name="gym-prep-instruction-following",
+        nemo_rl_path=NEMO_RL,
+        gym_home=f"{NEMO_RL}/3rdparty/Gym-workspace/Gym",
+        config_paths=[
+            "responses_api_models/vllm_model/configs/vllm_model_for_training.yaml",
+            "resources_servers/instruction_following/configs/instruction_following.yaml",
+        ],
+        venv_dir="$SCRATCH/tmp/nemo-gym-venvs",
+        nemo_rl_venv_dir="$SCRATCH/tmp/nemo-rl-venvs",
+        uv_cache_dir="$SCRATCH/tmp/uv-cache-nemo-gym",
+        scratch_root="$SCRATCH/tmp/nemo-gym-root",
+        output_dir="$SCRATCH/tmp/nemo-gym-data-collated",
+        dataset_name="instruction_following",
+        account="infra01",
+        partition="normal",
+        container="<edf>",
+    )
+)
 ```
 
 Then point the experiment at the result:
 
 ```python
 NemoRLExperiment(
-    gym_venv_dir=..., nemo_rl_venv_dir=..., gym_uv_cache_dir=..., gym_scratch_root=...,
+    gym_venv_dir=...,
+    nemo_rl_venv_dir=...,
+    gym_uv_cache_dir=...,
+    gym_scratch_root=...,
     data_path=".../instruction_following/train.jsonl",
     validation_data_path=".../instruction_following/validation.jsonl",
 )

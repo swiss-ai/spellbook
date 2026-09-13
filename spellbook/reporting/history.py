@@ -126,9 +126,7 @@ def fetch_report_series(
     if metadata:
         missing = [model.name for model in metadata if model.name not in assignments]
         if missing:
-            raise ValueError(
-                f"No WandB runs matched selected models: {', '.join(missing)}"
-            )
+            raise ValueError(f"No WandB runs matched selected models: {', '.join(missing)}")
 
     keys = required_history_keys(report)
     result = []
@@ -185,9 +183,7 @@ def stitch_frames(
     return frame.drop(columns="_spellbook_row", errors="ignore").reset_index(drop=True)
 
 
-def _load_run_history(
-    run, keys: Sequence[str], cache_dir: Path, *, refresh: bool
-) -> pd.DataFrame:
+def _load_run_history(run, keys: Sequence[str], cache_dir: Path, *, refresh: bool) -> pd.DataFrame:
     path = cache_dir / f"{run.id}.json"
     if path.exists() and not refresh:
         payload = json.loads(path.read_text())
@@ -258,9 +254,7 @@ def _namespace_metrics(frame: pd.DataFrame, namespace: str) -> pd.DataFrame:
     axis_keys = {key for aliases in AXIS_KEYS.values() for key in aliases}
     return frame.rename(
         columns={
-            column: f"{namespace}::{column}"
-            for column in frame.columns
-            if column not in axis_keys
+            column: f"{namespace}::{column}" for column in frame.columns if column not in axis_keys
         }
     )
 
@@ -288,9 +282,7 @@ def _match_model(run, report: Report, metadata: Sequence[ModelMetadata]) -> str 
                 return None
             matches.sort(reverse=True)
             if len(matches) > 1 and matches[0][0] == matches[1][0]:
-                raise ValueError(
-                    f"WandB run {run.id} ambiguously matches multiple models"
-                )
+                raise ValueError(f"WandB run {run.id} ambiguously matches multiple models")
             return matches[0][1]
         return run.name
 
