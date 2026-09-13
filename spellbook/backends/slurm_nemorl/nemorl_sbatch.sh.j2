@@ -1,0 +1,96 @@
+#!/bin/bash
+# Rendered by spellbook SlurmNemoRLBackend — do not edit by hand.
+#
+# Owns the Slurm/container boundary and the Ray cluster topology, following
+# NeMo-RL's ray.sub: one head on the first node and one worker per remaining node.
+# The driver runs inside the head step once the full cluster is ready.
+# {{ body_path }} runs inside the container and implements the three roles.
+#
+# Unlike ray.sub this does not use pyxis --container-name: Alps runs the CSCS
+# container engine (--environment), so each step gets its own container instance
+# and the driver reaches the head over RAY_ADDRESS rather than by sharing one.
+#SBATCH --job-name={{ job_name }}
+#SBATCH --account={{ account }}
+#SBATCH --partition={{ partition }}
+{%- if reservation %}
+#SBATCH --reservation={{ reservation }}
+{%- endif %}
+#SBATCH --nodes={{ nodes }}
+#SBATCH --ntasks-per-node=1
+#SBATCH --cpus-per-task={{ cpus_per_task }}
+#SBATCH --gres=gpu:{{ gpus_per_node }}
+#SBATCH --time={{ run_time }}
+#SBATCH --exclusive
+#SBATCH --output={{ log_dir }}/%x-%j.out
+#SBATCH --error={{ log_dir }}/%x-%j.err
+{% include "auto_requeue.sh.j2" %}
+
+# Resolve the Ray control plane before constructing the srun arguments. These
+# values must be exported both through Slurm and through the container boundary.
+mapfile -t nodes_array < <(scontrol show hostnames "$SLURM_JOB_NODELIST" | sort)
+num_nodes="$SLURM_JOB_NUM_NODES"
+head_node="${nodes_array[0]}"
+RAY_HEAD_IP="$(getent hosts "$head_node" | awk 'NR == 1 { print $1 }')"
+RAY_HEAD_IP="${RAY_HEAD_IP:-$head_node}"
+RAY_ADDRESS="${RAY_HEAD_IP}:{{ ray_port }}"
+SPELLBOOK_RAY_STATE_DIR="{{ log_dir }}/ray-${SLURM_JOB_ID}"
+mkdir -p "$SPELLBOOK_RAY_STATE_DIR"
+RAY_READY_FILE="$SPELLBOOK_RAY_STATE_DIR/ready"
+RAY_DONE_FILE="$SPELLBOOK_RAY_STATE_DIR/done"
+export RAY_HEAD_IP RAY_ADDRESS RAY_READY_FILE RAY_DONE_FILE
+EXPORTS="RAY_HEAD_IP,RAY_ADDRESS,RAY_READY_FILE,RAY_DONE_FILE"
+
+# --overlap on every step: the three roles share one allocation, and the driver runs
+# alongside the head on the same node.
+COMMON_SRUN_ARGS=(
+  --overlap
+  --export=ALL,"$EXPORTS"
+  --container-env="$EXPORTS"
+  --mpi=pmix -l
+{%- if container %}
+  --environment="{{ container }}"
+{%- endif %}
+{%- if container_mounts %}
+  --container-mounts="{{ container_mounts }}"
+{%- endif %}
+  --container-workdir="{{ nemo_rl_path }}"
+  --network=disable_rdzv_get
+)
+
+cleanup() {
+  touch "$RAY_DONE_FILE" 2>/dev/null || true
+  [[ -n "${WORKERS_PID:-}" ]] && kill "$WORKERS_PID" 2>/dev/null || true
+  rm -rf "$SPELLBOOK_RAY_STATE_DIR"
+}
+trap cleanup EXIT TERM INT
+
+{% include "vetnode_gate.sh.j2" %}
+
+echo "ray: head=$head_node addr=$RAY_ADDRESS nodes=$num_nodes"
+
+# Single node: the head already registers its GPUs as Ray resources, so there are
+# no workers to launch.
+if (( num_nodes > 1 )); then
+  # --kill-on-bad-exit=0 so one worker dying does not take down the head and driver.
+  srun "${COMMON_SRUN_ARGS[@]}" \
+    --nodes=$((num_nodes - 1)) --ntasks=$((num_nodes - 1)) --ntasks-per-node=1 \
+    --cpus-per-task={{ cpus_per_task }} \
+    --exclude="$head_node" \
+    --kill-on-bad-exit=0 \
+    -u bash "{{ body_path }}" worker &
+  WORKERS_PID=$!
+fi
+
+# The head step also runs the driver: Ray's CoreWorker opens the raylet's Unix
+# socket under the head's RAY_TMPDIR, and /tmp inside an Alps container is
+# per-container tmpfs, so a separate srun step cannot reach it.
+export RAY_EXPECTED_NODES="$num_nodes"
+srun "${COMMON_SRUN_ARGS[@]}" \
+  --nodes=1 --ntasks=1 -w "$head_node" \
+  --cpus-per-task={{ cpus_per_task }} \
+  --kill-on-bad-exit=1 \
+  -u bash "{{ body_path }}" head
+RC=$?
+
+echo "head/driver exited rc=$RC"
+exit "$RC"

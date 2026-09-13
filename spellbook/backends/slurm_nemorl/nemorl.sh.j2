@@ -1,0 +1,197 @@
+#!/bin/bash
+# Rendered by spellbook SlurmNemoRLBackend — do not edit by hand.
+#
+# Runs inside the container as one of three roles, following NeMo-RL's ray.sub:
+#   head    ray start --head, wait for the workers, then run the NeMo-RL driver
+#   worker  ray start --address=<head> on every other node
+# The wrapper passes the role as $1. Everything above the role dispatch is common.
+#
+# The driver runs INSIDE the head step, not as its own srun. Ray's CoreWorker opens
+# the raylet's Unix domain socket under the head's RAY_TMPDIR, and /tmp inside an
+# Alps container is per-container tmpfs, so a separate step cannot see it:
+#   Failed to connect to socket at address: .../sockets/raylet
+# ray.sub avoids this with pyxis --container-name (one shared container); with the
+# CSCS container engine the equivalent is to stay in the same step.
+set -euo pipefail
+
+ROLE="${1:-standalone}"
+case "$ROLE" in head|worker|standalone) ;; *) echo "unknown role: $ROLE" >&2; exit 2 ;; esac
+# Nodes that must join before the driver starts. standalone is its own cluster.
+RAY_EXPECTED_NODES="${RAY_EXPECTED_NODES:-1}"
+[[ "$ROLE" == "standalone" ]] && RAY_EXPECTED_NODES=1
+echo "[nemorl] role=$ROLE node=$(hostname)"
+
+# --- dependency overlays -----------------------------------------------------
+# Empty with the nemo-rl image (containers/nemo-rl), which carries the whole
+# NeMo-RL stack. Each overlay is an isolated `pip install --target` directory,
+# prepended so the container's torch is never shadowed.
+export PYTHONPATH="{% for p in overlay_paths %}{{ p }}:{% endfor %}{{ nemo_rl_path }}:{{ bridge_src_path }}:{{ megatron_path }}:${PYTHONPATH:-}"
+export PYTHONNOUSERSITE=1
+{% if overlay_bin_paths %}export PATH="{% for p in overlay_bin_paths %}{{ p }}:{% endfor %}$PATH"{% endif %}
+
+{% if py_executables_system %}
+# Use the container interpreter for every Ray worker instead of per-worker uv venvs.
+export NEMO_RL_PY_EXECUTABLES_SYSTEM=1
+export RAY_ENABLE_UV_RUN_RUNTIME_ENV=0
+{% endif %}
+
+# --- Hugging Face (spellbook evals convention: online + pinned shared cache) --
+export HF_HOME="${HF_HOME:-{{ hf_home }}}"
+export HF_DATASETS_CACHE="$HF_HOME"
+export HF_HUB_CACHE="$HF_HOME/hub"
+export HF_HUB_OFFLINE="0"
+export TOKENIZERS_PARALLELISM="False"
+
+# --- runtime env (spellbook/evals/megatron_eval.sh.j2) -----------------------
+export NVTE_ALLOW_NONDETERMINISTIC_ALGO="1"
+export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"
+export NCCL_NVLS_ENABLE="0"
+export TORCH_NCCL_AVOID_RECORD_STREAMS="0"
+export NCCL_GRAPH_REGISTER="0"
+export TORCH_NCCL_HIGH_PRIORITY="1"
+unset NVTE_FUSED_ATTN
+export NVTE_NORM_FWD_USE_CUDNN="1"
+export NVTE_NORM_BWD_USE_CUDNN="0"
+export NVTE_USE_CUTLASS_GROUPED_GEMM="0"
+export NCCL_DEBUG="WARN"
+export CUDA_DEVICE_MAX_CONNECTIONS="1"
+export TORCH_NCCL_ASYNC_ERROR_HANDLING=1
+export CUDA_CACHE_DISABLE=1
+{% for k, v in env_vars.items() %}export {{ k }}={{ v }}
+{% endfor %}
+
+{% if install_commands %}
+# --- extra packages ----------------------------------------------------------
+# Every role installs: head and workers are different nodes, so different container
+# instances, and each needs its own copy.
+{{ install_commands }}
+{% endif %}
+{% if gym_config_paths %}
+# --- NeMo Gym ----------------------------------------------------------------
+# The venvs and the collated dataset are prepared once by tools/gym_data, not here:
+# they are shared by every run against this Gym checkout and need no GPU. This block
+# only points Gym at them and fails fast if preparation has not happened.
+export GYM_HOME="{{ gym_home }}"
+export NEMO_GYM_VENV_DIR="{{ gym_venv_dir }}"
+export NEMO_RL_VENV_DIR="{{ nemo_rl_venv_dir }}"
+export UV_CACHE_DIR="{{ gym_uv_cache_dir }}"
+export NRL_CONTAINER=1                    # makes NeMo-RL forward UV_CACHE_DIR to Gym
+export PATH="/root/.local/bin:$PATH"      # uv
+
+# Earliest root wins (nemo_gym/__init__.py) and a dataset's jsonl_fpath is relative,
+# so the writable scratch root must come first or Gym writes into the checkout.
+export NEMO_GYM_SCRATCH_ROOT="{{ gym_scratch_root }}"
+mkdir -p "$NEMO_GYM_SCRATCH_ROOT"
+export NEMO_GYM_EXTRA_ROOTS="$NEMO_GYM_SCRATCH_ROOT:$GYM_HOME"
+# nemo_gym must import in the driver (the runner builds NemoGymConfig before the
+# actor exists) and in the Ray actors, which inherit this environment.
+export PYTHONPATH="$GYM_HOME:${PYTHONPATH:-}"
+
+if [[ ! -d "$GYM_HOME/nemo_gym" ]]; then
+  echo "FATAL: Gym submodule not initialised at $GYM_HOME" >&2; exit 1
+fi
+_actor_venv="$NEMO_RL_VENV_DIR/nemo_rl.environments.nemo_gym.NemoGym"
+if [[ ! -x "$_actor_venv/bin/python" ]]; then
+  echo "FATAL: NemoGym actor venv missing at $_actor_venv" >&2
+  echo "       prepare the environment first with tools/gym_data" >&2
+  exit 1
+fi
+{% endif %}
+
+# --- Ray lifecycle -----------------------------------------------------------
+# RAY_HEAD_IP / RAY_ADDRESS / RAY_READY_FILE come from the wrapper.
+export RAY_EXPERIMENTAL_NOSET_CUDA_VISIBLE_DEVICES=1
+export RAY_TMPDIR="{{ ray_tmpdir }}/$ROLE"
+mkdir -p "$RAY_TMPDIR"
+# The wrapper exports these; standalone runs inside an existing allocation with no
+# wrapper, so it is its own head.
+RAY_HEAD_IP="${RAY_HEAD_IP:-$(hostname -i | awk '{print $1}')}"
+RAY_ADDRESS="${RAY_ADDRESS:-${RAY_HEAD_IP}:{{ ray_port }}}"
+RAY_READY_FILE="${RAY_READY_FILE:-$RAY_TMPDIR/ray-ready}"
+RAY_DONE_FILE="${RAY_DONE_FILE:-$RAY_TMPDIR/ray-done}"
+export RAY_HEAD_IP RAY_ADDRESS RAY_READY_FILE RAY_DONE_FILE
+
+# Ray owns actor placement; the launcher's rank topology must not leak into it.
+while IFS='=' read -r _n _; do
+  case "$_n" in PMI*|PMIX*|MPI*|OMPI*|SLURM_*) unset "$_n" ;; esac
+done < <(env)
+
+_ray_reset() {
+  ray stop --force >/dev/null 2>&1 || true
+  # A timed-out attempt leaves a session directory behind, and the next start hits
+  # "Session name ... does not match persisted value".
+  rm -rf "$RAY_TMPDIR"/session_* 2>/dev/null || true
+}
+
+case "$ROLE" in
+
+worker)
+  # 'ray start --address' fails until the head GCS is listening.
+  _deadline=$((SECONDS + 600))
+  while [[ ! -f "$RAY_READY_FILE" ]]; do
+    (( SECONDS > _deadline )) && { echo "head never became ready" >&2; exit 1; }
+    sleep 2
+  done
+  _ray_reset
+  trap 'ray stop --force >/dev/null 2>&1 || true' EXIT TERM INT
+  ray start --address="$RAY_ADDRESS" \
+    --disable-usage-stats \
+    --num-gpus={{ gpus_per_node }} \
+    --num-cpus={{ cpus_per_task }} \
+    --min-worker-port=2000 --max-worker-port=2999 \
+    --temp-dir="$RAY_TMPDIR" \
+    --block
+  ;;
+
+head|standalone)
+  # standalone is simply a head with no workers to wait for.
+  _ray_reset
+  rm -f "$RAY_READY_FILE"
+  trap 'ray stop --force >/dev/null 2>&1 || true' EXIT TERM INT
+  ray start --head \
+    --disable-usage-stats \
+    --node-ip-address="$RAY_HEAD_IP" \
+    --port={{ ray_port }} \
+    --num-gpus={{ gpus_per_node }} \
+    --num-cpus={{ cpus_per_task }} \
+    --include-dashboard=false \
+    --min-worker-port=2000 --max-worker-port=2999 \
+    --temp-dir="$RAY_TMPDIR"
+  # Touched only after the GCS is accepting connections, so workers and the driver
+  # never race a half-started head.
+  until ray status --address="$RAY_ADDRESS" >/dev/null 2>&1; do sleep 2; done
+  touch "$RAY_READY_FILE"
+  echo "[nemorl] ray head ready at $RAY_ADDRESS"
+  # The driver schedules actors across the whole cluster, so do not start it until
+  # every worker has registered; Ray would otherwise place everything on the head.
+  RAY_EXPECTED_NODES="$RAY_EXPECTED_NODES" python - <<'PY_WAIT_NODES'
+import os, sys, time
+import ray
+
+want = int(os.environ["RAY_EXPECTED_NODES"])
+ray.init(address="auto", log_to_driver=False)
+deadline = time.time() + 900
+while True:
+    alive = sum(1 for n in ray.nodes() if n["Alive"])
+    if alive >= want:
+        print(f"[nemorl] {alive}/{want} ray nodes registered")
+        break
+    if time.time() > deadline:
+        sys.exit(f"only {alive}/{want} ray nodes registered after 15 min")
+    time.sleep(5)
+PY_WAIT_NODES
+  ;&    # fall through and run the driver in this same step
+
+driver)
+  _deadline=$((SECONDS + 600))
+  while [[ ! -f "$RAY_READY_FILE" ]]; do
+    (( SECONDS > _deadline )) && { echo "head never became ready" >&2; exit 1; }
+    sleep 2
+  done
+  # Connect to the existing cluster rather than starting one.
+  export RAY_ADDRESS
+  cd "{{ nemo_rl_path }}"
+  python "{{ entrypoint }}" --config "{{ recipe_path }}"
+  ;;
+
+esac
