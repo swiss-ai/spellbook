@@ -7,7 +7,6 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-
 _SHELL_SAFE = re.compile(r"^[A-Za-z0-9_@%+=:,./-]+$")
 
 

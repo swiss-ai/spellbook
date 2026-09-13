@@ -65,17 +65,20 @@ class Experiment:
         To change a locked experiment: delete its .lock.yaml, update the config,
         and re-lock by running the experiment file again.
         """
-        import yaml
         from datetime import datetime
+
+        import yaml
 
         locks_dir.mkdir(parents=True, exist_ok=True)
         path = locks_dir / f"{self.name}.lock.yaml"
-        current = {k: v for k, v in self.to_dict().items() if k not in self._lock_exclude}
+        current = {
+            k: v for k, v in self.to_dict().items() if k not in self._lock_exclude
+        }
 
         if not path.exists():
             data = {
                 "name": self.name,
-                "locked_at": datetime.now().isoformat(timespec="seconds"),
+                "locked_at": datetime.now().astimezone().isoformat(timespec="seconds"),
                 "fields": current,
             }
             path.write_text(yaml.dump(data, default_flow_style=None, sort_keys=True))
@@ -99,4 +102,3 @@ class Experiment:
 
         object.__setattr__(self, "_locked", True)
         return self
-

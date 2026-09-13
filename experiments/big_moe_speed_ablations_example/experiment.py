@@ -19,7 +19,6 @@ from spellbook.backends import SlurmBackend
 from spellbook.core import Sweep
 from spellbook.megatron import MegatronExperiment
 
-
 # ---------------------------------------------------------------------------
 # Extended experiment dataclass — fields specific to this ablation
 # ---------------------------------------------------------------------------
@@ -93,17 +92,25 @@ BASE = BigMoEExperiment(
     moe_grouped_gemm=True,
     overlap_moe_expert_parallel_comm=True,
     # Parallelism
-    tp=2, pp=8, ep=64, etp=1, num_gpus=1024,
+    tp=2,
+    pp=8,
+    ep=64,
+    etp=1,
+    num_gpus=1024,
     pipeline_model_parallel_layout="Et|(tt|)*30L",
     sequence_parallel=True,
     # Batch / schedule
-    mbs=1, gbs=8192,
+    mbs=1,
+    gbs=8192,
     train_tokens=1_048_576_000,
-    lr=3.9e-6, min_lr=3.9e-7,
+    lr=3.9e-6,
+    min_lr=3.9e-7,
     lr_decay_style="WSD",
     lr_warmup_iters=0,
     lr_wsd_decay_iters=0,
-    adam_beta1=0.9, adam_beta2=0.95, adam_eps=1e-8,
+    adam_beta1=0.9,
+    adam_beta2=0.95,
+    adam_eps=1e-8,
     init_method_std=0.0059,
     weight_decay=0.1,
     clip_grad=1.0,
@@ -141,7 +148,8 @@ BASE = BigMoEExperiment(
 AYUSH = BASE.change(
     "DEEPSEEK_V3_AYUSH",
     ffn_hidden_size=16384,
-    lr=3e-4, min_lr=3e-5,
+    lr=3e-4,
+    min_lr=3e-5,
     init_method_std=0.008944,
     mbs=2,
     moe_aux_loss_coeff=1e-2,
@@ -151,7 +159,10 @@ AYUSH = BASE.change(
     moe_router_group_topk=4,
     overlap_moe_expert_parallel_comm=False,
     delay_wgrad_compute=False,
-    tp=4, pp=16, ep=8, num_gpus=512,
+    tp=4,
+    pp=16,
+    ep=8,
+    num_gpus=512,
     moe_token_dispatcher_type="allgather",
     main_grads_dtype="bf16",
 )

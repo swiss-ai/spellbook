@@ -107,10 +107,10 @@ class MegatronPathTest(unittest.TestCase):
         second = _render(_config("https://example.com/second.git", "abc123"), 10, False)
 
         first_key = hashlib.sha256(
-            "https://example.com/first.git\0abc123".encode()
+            b"https://example.com/first.git\0abc123"
         ).hexdigest()[:16]
         second_key = hashlib.sha256(
-            "https://example.com/second.git\0abc123".encode()
+            b"https://example.com/second.git\0abc123"
         ).hexdigest()[:16]
         self.assertIn(f"megatron_worktrees/{first_key}", first)
         self.assertIn(f"megatron_worktrees/{second_key}", second)

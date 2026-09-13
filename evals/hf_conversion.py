@@ -74,9 +74,17 @@ def _resolve_ref(root: Path, requested: str) -> str:
         candidates.insert(0, f"refs/remotes/origin/{requested}")
     for candidate in candidates:
         result = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "--verify", f"{candidate}^{{commit}}"],
+            [
+                "git",
+                "-C",
+                str(root),
+                "rev-parse",
+                "--verify",
+                f"{candidate}^{{commit}}",
+            ],
             capture_output=True,
             text=True,
+            check=False,
         )
         if result.returncode == 0:
             return result.stdout.strip()
@@ -120,6 +128,7 @@ def _prepare_hfconverter(cfg: HFConversionConfig) -> Path:
                 ["git", "-C", str(worktree), "rev-parse", "HEAD"],
                 capture_output=True,
                 text=True,
+                check=False,
             )
             if actual.returncode != 0 or actual.stdout.strip() != target:
                 subprocess.run(
@@ -153,9 +162,7 @@ def _prepare_hfconverter(cfg: HFConversionConfig) -> Path:
     return worktree
 
 
-def _validate(
-    cfg: HFConversionConfig, root: Path
-) -> tuple[Path, Path, Path, Path]:
+def _validate(cfg: HFConversionConfig, root: Path) -> tuple[Path, Path, Path, Path]:
     checkpoint = Path(cfg.checkpoint_dir).expanduser().resolve()
     # Keep the final component unresolved so recreation can reject symlinks.
     output = Path(cfg.output_dir).expanduser().absolute()
@@ -180,7 +187,9 @@ def _validate(
         or resolved_output.is_relative_to(checkpoint)
         or checkpoint.is_relative_to(resolved_output)
     ):
-        raise ValueError("output and checkpoint directories must not contain one another")
+        raise ValueError(
+            "output and checkpoint directories must not contain one another"
+        )
     if output.exists() and not output.is_dir():
         raise ValueError(f"output path exists and is not a directory: {output}")
     if cfg.hfconverter_commit and not _is_git_url(cfg.hfconverter_root):
@@ -192,17 +201,13 @@ def _validate(
         ).stdout.strip()
         expected = _resolve_ref(root, cfg.hfconverter_commit)
         if actual != expected:
-            raise ValueError(
-                f"hfconverter checkout is {actual}, expected {expected}"
-            )
+            raise ValueError(f"hfconverter checkout is {actual}, expected {expected}")
     return root, checkpoint, output, tokenizer
 
 
 def render_submission(cfg: HFConversionConfig) -> tuple[list[str], dict[str, str]]:
     """Prepare hfconverter and render its command and environment."""
-    root, checkpoint, output, tokenizer = _validate(
-        cfg, _prepare_hfconverter(cfg)
-    )
+    root, checkpoint, output, tokenizer = _validate(cfg, _prepare_hfconverter(cfg))
     name = _JOB_NAME.sub("-", f"hf_{output.name}").strip("-") or "hf_conversion"
     log_dir = Path(cfg.log_dir).expanduser().resolve()
     command = [
