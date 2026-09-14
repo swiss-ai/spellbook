@@ -164,7 +164,7 @@ head|standalone)
   echo "[nemorl] ray head ready at $RAY_ADDRESS"
   # The driver schedules actors across the whole cluster, so do not start it until
   # every worker has registered; Ray would otherwise place everything on the head.
-  RAY_EXPECTED_NODES="$RAY_EXPECTED_NODES" uv run --no-project python - <<'PY_WAIT_NODES'
+  RAY_EXPECTED_NODES="$RAY_EXPECTED_NODES" python - <<'PY_WAIT_NODES'
 import os, sys, time
 import ray
 
@@ -191,7 +191,7 @@ driver)
   # Connect to the existing cluster rather than starting one.
   export RAY_ADDRESS
   cd "{{ nemo_rl_path }}"
-  uv run --no-project python "{{ entrypoint }}" --config "{{ recipe_path }}"
+  python "{{ entrypoint }}" --config "{{ recipe_path }}"
   ;;
 
 esac
