@@ -38,13 +38,16 @@ mkdir -p "$SPELLBOOK_RAY_STATE_DIR"
 RAY_READY_FILE="$SPELLBOOK_RAY_STATE_DIR/ready"
 RAY_DONE_FILE="$SPELLBOOK_RAY_STATE_DIR/done"
 export RAY_HEAD_IP RAY_ADDRESS RAY_READY_FILE RAY_DONE_FILE
-EXPORTS="RAY_HEAD_IP,RAY_ADDRESS,RAY_READY_FILE,RAY_DONE_FILE"
+# --container-env names which of the exported variables cross into the container.
+# What srun forwards in the first place is srun_export_vars, an explicit list: with
+# --export=ALL the submitting shell's PATH and PYTHONPATH come too.
+EXPORTS="RAY_HEAD_IP,RAY_ADDRESS,RAY_READY_FILE,RAY_DONE_FILE,RAY_EXPECTED_NODES"
 
 # --overlap on every step: the three roles share one allocation, and the driver runs
 # alongside the head on the same node.
 COMMON_SRUN_ARGS=(
   --overlap
-  --export=ALL,"$EXPORTS"
+  --export="{{ srun_export_vars }}"
   --container-env="$EXPORTS"
   {{ srun_extra_args }}
   -l

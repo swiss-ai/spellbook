@@ -1,0 +1,37 @@
+# Container engine EDF for the nemo-rl image.
+# https://docs.cscs.ch/software/container-engine/run/
+#
+# Point an experiment at it with SlurmNemoRLBackend(container="<path to this file>").
+# Copy it to ~/.edf/ or keep it here and pass the full path.
+
+# The only line that changes between a local build and a published image:
+#   local build    ${SCRATCH}/img/<name>.sqsh          (build.sh writes this path)
+#   published      jfrog.svc.cscs.ch#docker-group-csstaff/alps-images/nemo-rl-cuda:alps7-dev
+image = "${SCRATCH}/img/nemorl_alps7_te217_groupgemm_emrgopt_deepgemm_fla52_uccl.sqsh"
+
+mounts = [
+    "/capstor/",
+    "/iopsstor/",
+    "${HOME}:${HOME}"
+]
+
+workdir = "${PWD}"
+
+writable = true
+
+[env]
+# Required, not a preference. The container engine merges the **submitting shell's
+# PATH** in *ahead* of the image's path, and no srun --export setting prevents it -- not
+# even --export=NONE. A $HOME/.local/bin/python (which `uv python install --default`
+# creates) then shadows /usr/bin/python and every job dies on "No module named
+# 'ray'". Pinning the image's own PATH here is scoped to this image; the same list
+# hardcoded in a shared launcher template would break images whose python lives
+# elsewhere. **Re-derive this by running `echo $PATH` in the image with nothing exported**.
+PATH = "/usr/local/lib/python3.12/dist-packages/torch_tensorrt/bin:/usr/local/nvidia/bin:/usr/local/cuda/bin:/usr/local/mpi/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/ucx/bin" # This feels very ad-hoc, there should be another way that doesb't leave in the toml edf file.
+PMIX_MCA_psec = "native"
+NCCL_PXN_DISABLE = "1"
+NCCL_CROSS_NIC = "0"
+
+[annotations]
+com.hooks.cxi.enabled = "false"
+com.hooks.netstack.source = "artifact"

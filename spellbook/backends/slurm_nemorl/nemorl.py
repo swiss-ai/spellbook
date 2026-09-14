@@ -36,6 +36,29 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
     return base
 
 
+# Forwarded to every srun step. The list is explicit rather than --export=ALL:
+# ALL hands the submitting shell's environment to the container, so a $HOME/.local/bin
+# entry on PATH shadows the image's interpreter and an inherited PYTHONPATH shadows
+# its packages. Matches _SRUN_INFRA_EXPORTS in slurm_megatron.
+_SRUN_INFRA_EXPORTS = [
+    "SLURM_JOB_ID",
+    "SLURM_NETWORK",
+    "RAY_HEAD_IP",
+    "RAY_ADDRESS",
+    "RAY_READY_FILE",
+    "RAY_DONE_FILE",
+    "RAY_EXPECTED_NODES",
+    "WANDB_API_KEY",
+    "WANDB_PROJECT",
+    "WANDB_MODE",
+    "WANDB_RESUME",
+    "WANDB_RUN_ID",
+    "HF_TOKEN",
+    "HF_HUB_ENABLE_HF_TRANSFER",
+    "PYTHONNOUSERSITE",
+]
+
+
 @dataclasses.dataclass
 class SlurmNemoRLBackend:
     # Algorithms that roll out, and therefore carry policy.generation and the
@@ -354,6 +377,9 @@ class SlurmNemoRLBackend:
             log_dir=str(log_dir),
             ray_port=self.ray_port,
             srun_extra_args=self.srun_extra_args,
+            srun_export_vars=",".join(
+                dict.fromkeys(_SRUN_INFRA_EXPORTS + list({**self.env_vars, **exp.env_vars}))
+            ),
             vetnode=self.vetnode,
             vetnode_config=self.vetnode_config or str(_SHARED_TEMPLATE_DIR / "vetnode-config.yaml"),
             vetnode_install=self.vetnode_install,

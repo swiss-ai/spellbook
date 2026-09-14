@@ -50,7 +50,7 @@ srun --overlap \
   --cpus-per-task="${SPELLBOOK_VETNODE_CPUS_PER_TASK}" \
   --kill-on-bad-exit=0 \
   --wait=10 \
-  --export=ALL,SPELLBOOK_VETNODE_DIR="${SPELLBOOK_VETNODE_DIR}",PYTHONNOUSERSITE=1 \
+  --export=SPELLBOOK_VETNODE_DIR="${SPELLBOOK_VETNODE_DIR}",PYTHONNOUSERSITE=1 \
 {%- if container_edf is defined and container_edf %}
   --container-env=SPELLBOOK_VETNODE_DIR,PYTHONNOUSERSITE \
   --environment="{{ container_edf }}" \
