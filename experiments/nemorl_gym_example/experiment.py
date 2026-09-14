@@ -19,11 +19,13 @@ everything NeMo-RL requires.
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 from spellbook.backends import SlurmNemoRLBackend
 from spellbook.core import Sweep
 from spellbook.nemorl import PASSTHROUGH_CHAT_TEMPLATE, NemoRLExperiment
 
+REPO = Path(__file__).resolve().parents[2]
 SCRATCH = os.environ.get("SCRATCH", "/iopsstor/scratch/cscs/anowak")
 NEMO_RL = "/users/anowak/open_source/Nemo-RL"
 PREP = f"{SCRATCH}/tmp/spellbook-nemorl-gym"  # must match prepare_data.py
@@ -133,7 +135,10 @@ backend = SlurmNemoRLBackend(
     gpus_per_node=4,
     cpus_per_task=288,
     run_time="02:00:00",
-    container=f"{SCRATCH}/img/nemorl_alps7_te217_groupgemm_emrgopt_deepgemm_fla52_uccl.toml",
+    # The EDF is versioned with the image definition; its `image` line resolves
+    # through ${SCRATCH}, and its [env] PATH keeps a $HOME/.local/bin python from
+    # shadowing the container's.
+    container=str(REPO / "containers/nemo-rl/nemo-rl.toml"),
     # Mount the venv squashfs at exactly gym_venv_dir: the venvs hold editable .pth
     # files with absolute paths. Drop this entry to read the loose venv directory.
     container_mounts=(
