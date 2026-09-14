@@ -58,11 +58,17 @@ class NemoRLBackendTest(unittest.TestCase):
         self.assertEqual(recipe["grpo"]["num_prompts_per_step"], 8)
         self.assertEqual(recipe["policy"]["generation"]["backend"], "megatron")
         self.assertIn("examples/run_grpo.py", body_text)
+        self.assertIn('uv run --no-project python "examples/run_grpo.py"', body_text)
+        self.assertIn("uv run --no-project python - <<'PY_WAIT_NODES'", body_text)
         self.assertIn('"$head_node"', wrapper)
         self.assertIn("$((num_nodes - 1))", wrapper)
         self.assertIn('--ntasks-per-node="${SPELLBOOK_VETNODE_TASKS_PER_NODE}"', wrapper)
         self.assertIn('numactl --cpunodebind="${SLURM_LOCALID}"', wrapper)
-        self.assertIn('EXPORTS="RAY_HEAD_IP,RAY_ADDRESS,RAY_READY_FILE,RAY_DONE_FILE"', wrapper)
+        self.assertIn(
+            'EXPORTS="RAY_HEAD_IP,RAY_ADDRESS,RAY_READY_FILE,RAY_DONE_FILE,RAY_EXPECTED_NODES"',
+            wrapper,
+        )
+        self.assertIn("WANDB_API_KEY,WANDB_ENTITY,WANDB_PROJECT", wrapper)
         self.assertIn("mapfile -t nodes_array", wrapper)
         self.assertIn("--mpi=pmix --wait=30", wrapper)
         subprocess.run(["bash", "-n"], input=wrapper, text=True, check=True)
