@@ -1,7 +1,8 @@
 #!/bin/bash
 # Rendered by spellbook SlurmNemoRLBackend — do not edit by hand.
 #
-# Runs inside the container as one of three roles, following NeMo-RL's ray.sub:
+# Runs inside the container as one of four roles:
+#   auto    task zero is the head; every other Slurm node task is a worker
 #   head    ray start --head, wait for the workers, then run the NeMo-RL driver
 #   worker  ray start --address=<head> on every other node
 # The wrapper passes the role as $1. Everything above the role dispatch is common.
@@ -15,6 +16,9 @@
 set -euo pipefail
 
 ROLE="${1:-standalone}"
+if [[ "$ROLE" == "auto" ]]; then
+  [[ "${SLURM_PROCID:-0}" == "0" ]] && ROLE=head || ROLE=worker
+fi
 case "$ROLE" in head|worker|standalone) ;; *) echo "unknown role: $ROLE" >&2; exit 2 ;; esac
 # Nodes that must join before the driver starts. standalone is its own cluster.
 RAY_EXPECTED_NODES="${RAY_EXPECTED_NODES:-1}"
@@ -139,15 +143,15 @@ worker)
     --num-gpus={{ gpus_per_node }} \
     --num-cpus={{ cpus_per_task }} \
     --min-worker-port=2000 --max-worker-port=2999 \
-    --temp-dir="$RAY_TMPDIR" \
-    --block
+    --temp-dir="$RAY_TMPDIR"
+  while [[ ! -f "$RAY_DONE_FILE" ]]; do sleep 2; done
   ;;
 
 head|standalone)
   # standalone is simply a head with no workers to wait for.
   _ray_reset
   rm -f "$RAY_READY_FILE"
-  trap 'ray stop --force >/dev/null 2>&1 || true' EXIT TERM INT
+  trap 'touch "$RAY_DONE_FILE" 2>/dev/null || true; ray stop --force >/dev/null 2>&1 || true' EXIT TERM INT
   ray start --head \
     --disable-usage-stats \
     --node-ip-address="$RAY_HEAD_IP" \

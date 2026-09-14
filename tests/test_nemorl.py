@@ -62,8 +62,11 @@ class NemoRLBackendTest(unittest.TestCase):
         self.assertIn("examples/run_grpo.py", body_text)
         self.assertIn('python "examples/run_grpo.py"', body_text)
         self.assertIn("python - <<'PY_WAIT_NODES'", body_text)
-        self.assertIn('"$head_node"', wrapper)
-        self.assertIn("$((num_nodes - 1))", wrapper)
+        self.assertIn('[[ "${SLURM_PROCID:-0}" == "0" ]]', body_text)
+        self.assertIn('while [[ ! -f "$RAY_DONE_FILE" ]]', body_text)
+        self.assertIn('--nodes="$num_nodes" --ntasks="$num_nodes" --ntasks-per-node=1', wrapper)
+        self.assertIn(f'-u bash "{body}" auto', wrapper)
+        self.assertNotIn("$((num_nodes - 1))", wrapper)
         self.assertIn('--ntasks-per-node="${SPELLBOOK_VETNODE_TASKS_PER_NODE}"', wrapper)
         self.assertIn('numactl --cpunodebind="${SLURM_LOCALID}"', wrapper)
         self.assertIn(
@@ -73,6 +76,7 @@ class NemoRLBackendTest(unittest.TestCase):
         self.assertIn("WANDB_API_KEY,WANDB_ENTITY,WANDB_PROJECT", wrapper)
         self.assertIn("mapfile -t nodes_array", wrapper)
         self.assertIn("--mpi=pmix --wait=30", wrapper)
+        subprocess.run(["bash", "-n"], input=body_text, text=True, check=True)
         subprocess.run(["bash", "-n"], input=wrapper, text=True, check=True)
 
     def test_default_scheduler_logs_are_outside_checkout(self) -> None:
