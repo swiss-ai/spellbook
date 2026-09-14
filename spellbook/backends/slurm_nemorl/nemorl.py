@@ -222,6 +222,9 @@ class SlurmNemoRLBackend:
                 "path": exp.pretrained_checkpoint_path,
             },
             "max_total_sequence_length": exp.max_total_sequence_length,
+            # NeMo-RL base recipes may enable DTensor. This backend always uses
+            # Megatron, and LMPolicy rejects configurations with both enabled.
+            "dtensor_cfg": {"enabled": False},
             "megatron_cfg": self.megatron_section(exp),
         }
         if self.generates(exp):

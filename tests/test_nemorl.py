@@ -57,6 +57,8 @@ class NemoRLBackendTest(unittest.TestCase):
         self.assertEqual(recipe["cluster"], {"gpus_per_node": 4, "num_nodes": 2})
         self.assertEqual(recipe["grpo"]["num_prompts_per_step"], 8)
         self.assertEqual(recipe["policy"]["generation"]["backend"], "megatron")
+        self.assertFalse(recipe["policy"]["dtensor_cfg"]["enabled"])
+        self.assertTrue(recipe["policy"]["megatron_cfg"]["enabled"])
         self.assertIn("examples/run_grpo.py", body_text)
         self.assertIn('python "examples/run_grpo.py"', body_text)
         self.assertIn("python - <<'PY_WAIT_NODES'", body_text)
