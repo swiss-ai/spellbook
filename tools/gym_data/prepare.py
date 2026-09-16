@@ -24,8 +24,17 @@ def _run(cmd: list[str], cwd: Path | None = None, env: dict[str, str] | None = N
 
 
 def head_deps() -> list[str]:
-    """Pins Gym applies to each child venv, read from the running environment."""
-    return [f"ray[default]=={md.version('ray')}", f"openai=={md.version('openai')}"]
+    """Pins Gym applies to each child venv.
+
+    The official NeMo RL v0.7 parent has Ray but intentionally omits OpenAI.
+    Gym supports OpenAI through 2.7.2, so use that release when no parent pin is
+    available instead of requiring the policy environment to install it.
+    """
+    try:
+        openai_version = md.version("openai")
+    except md.PackageNotFoundError:
+        openai_version = "2.7.2"
+    return [f"ray[default]=={md.version('ray')}", f"openai=={openai_version}"]
 
 
 def actor_venv_ready(venv: Path) -> bool:

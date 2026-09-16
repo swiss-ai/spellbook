@@ -5,11 +5,22 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from tools.gym_data import GymDataConfig, render
+from tools.gym_data.prepare import head_deps
 
 
 class GymDataTest(unittest.TestCase):
+    def test_head_deps_falls_back_when_openai_is_absent(self) -> None:
+        def version(name: str) -> str:
+            if name == "openai":
+                raise __import__("importlib").metadata.PackageNotFoundError(name)
+            return "2.55.1"
+
+        with patch("tools.gym_data.prepare.md.version", side_effect=version):
+            self.assertEqual(head_deps(), ["ray[default]==2.55.1", "openai==2.7.2"])
+
     def test_default_scheduler_logs_are_outside_checkout(self) -> None:
         cfg = GymDataConfig(
             name="gym-data-test",
