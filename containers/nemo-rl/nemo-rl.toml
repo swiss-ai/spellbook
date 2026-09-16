@@ -12,6 +12,7 @@ image = "${SCRATCH}/img/nemorl_alps7_te217_groupgemm_emrgopt_deepgemm_fla52_uccl
 mounts = [
     "/capstor/",
     "/iopsstor/",
+    "/ritom/",
     "${HOME}:${HOME}"
 ]
 
@@ -32,6 +33,16 @@ PMIX_MCA_psec = "native"
 NCCL_PXN_DISABLE = "1"
 NCCL_CROSS_NIC = "0"
 
+# Persistent shared caches. Keep the small-file workload off $HOME and Lustre.
+XDG_CACHE_HOME = "/ritom/scratch/cscs/${USER}/cache"
+HF_HOME = "/ritom/scratch/cscs/${USER}/cache/huggingface"
+HF_HUB_CACHE = "/ritom/scratch/cscs/${USER}/cache/huggingface/hub"
+TORCH_HOME = "/ritom/scratch/cscs/${USER}/cache/torch"
+VLLM_CACHE_ROOT = "/ritom/scratch/cscs/${USER}/cache/vllm"
+FLASHINFER_WORKSPACE_BASE = "/ritom/scratch/cscs/${USER}/cache/flashinfer"
+PIP_CACHE_DIR = "/ritom/scratch/cscs/${USER}/cache/pip"
+UV_CACHE_DIR = "/ritom/scratch/cscs/${USER}/cache/uv"
+
 [annotations]
 com.hooks.cxi.enabled = "false"
-com.hooks.netstack.source = "artifact"
+com.hooks.netstack.source = "host"
