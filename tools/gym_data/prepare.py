@@ -129,6 +129,8 @@ def write_prefetch_config(args: argparse.Namespace, path: Path) -> Path:
                         "skip_venv_if_present": True,
                         "port_range_low": 5000,
                         "port_range_high": 5999,
+                        "uv_cache_dir": args.uv_cache_dir,
+                        "uv_venv_dir": args.venv_dir,
                         "config_paths": list(args.config_path),
                     }
                 }
