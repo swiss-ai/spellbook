@@ -44,7 +44,7 @@ def actor_venv_ready(venv: Path) -> bool:
         return False
     return (
         subprocess.run(
-            [str(python), "-c", "import nemo_gym, openai, ray"],
+            [str(python), "-c", "import nemo_gym, openai, ray, torch"],
             env=os.environ,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
@@ -66,7 +66,7 @@ def build_actor_venv(gym_home: Path, nemo_rl_venv_dir: Path) -> None:
         Failed to generate package metadata for `nemo-automodel @ editable+3rdparty/...`
 
     venvs.py:_env_builder returns early when this venv already exists, so creating it
-    here skips the sync. --system-site-packages keeps the container's
+    here skips the sync. A .pth file exposes the official parent environment's
     torch/transformers; nemo_rl, bridge and megatron come from PYTHONPATH.
     """
     venv = nemo_rl_venv_dir / "nemo_rl.environments.nemo_gym.NemoGym"
@@ -84,13 +84,25 @@ def build_actor_venv(gym_home: Path, nemo_rl_venv_dir: Path) -> None:
             "uv",
             "venv",
             "--seed",
-            "--system-site-packages",
             "--allow-existing",
             "--python",
             sys.executable,
             str(venv),
         ]
     )
+    parent_site = subprocess.check_output(
+        [sys.executable, "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+        text=True,
+    ).strip()
+    actor_site = subprocess.check_output(
+        [
+            str(venv / "bin" / "python"),
+            "-c",
+            "import sysconfig; print(sysconfig.get_path('purelib'))",
+        ],
+        text=True,
+    ).strip()
+    Path(actor_site, "nemo_rl_parent.pth").write_text(f"{parent_site}\n")
     _run(
         ["uv", "pip", "install", "-e", ".", *head_deps()],
         cwd=gym_home,
