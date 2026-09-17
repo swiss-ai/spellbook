@@ -98,13 +98,12 @@ can never re-split an already-split dataset.
 ## venv_overrides
 
 Gym appends `head_server_deps` — `ray[default]==<parent>` and `openai==<parent>` — to
-the `uv pip install` command line of every server venv, and its own `pyproject.toml`
-caps openai at `<=2.7.2`. A server built on a newer vLLM needs a newer openai than
-that (vLLM 0.29 imports `openai.types.responses.NamespaceTool`, added in openai
-2.25.0), and it cannot say so in its own `pyproject.toml`: the command-line pin and
-the declared requirement conflict, and the resolve fails.
+every server venv's install command line, and its own `pyproject.toml` caps openai at
+`<=2.7.2`. A server built on a newer vLLM needs more than that (vLLM 0.29 imports
+`openai.types.responses.NamespaceTool`, added in openai 2.25.0) and cannot declare it:
+the command-line pin and the declared requirement conflict, and the resolve fails.
 
-`venv_overrides` re-pins after the fact, in one named server venv only:
+`venv_overrides` re-pins afterwards, in the named server venv only:
 
 ```python
 GymDataConfig(
@@ -114,6 +113,6 @@ GymDataConfig(
 ```
 
 Entries are `<server dir>:<requirement>`, the server dir being the one under
-`venv_dir` that Gym built. The install runs only when venvs are built, and is cheap
-to repeat because uv skips an already-satisfied requirement. Keep the other venvs on
-Gym's pin: they run Gym's own client code, which is what that pin is there for.
+`venv_dir`. They are installed only when venvs are built, and repeat cheaply because
+uv skips an already-satisfied requirement. Leave the other venvs on Gym's pin: they
+run Gym's own client code, which is what that pin is for.

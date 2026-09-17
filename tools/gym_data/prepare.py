@@ -148,11 +148,9 @@ def write_prefetch_config(args: argparse.Namespace, path: Path) -> Path:
 def apply_venv_overrides(venv_dir: Path, overrides: list[str]) -> None:
     """Force requirements into one server venv after Gym has built it.
 
-    Gym appends its own `head_server_deps` pins to the `uv pip install` command line of
-    every server venv, and its pyproject caps openai at 2.7.2. A server whose own
-    dependencies need a newer release cannot say so in its pyproject: the two
-    constraints conflict and the resolve fails. Re-pinning afterwards keeps the change
-    scoped to the server that needs it instead of moving every venv off Gym's pin.
+    Gym appends `head_server_deps` to every server's install command line and caps
+    openai at 2.7.2, so a server needing a newer release cannot declare it in its own
+    pyproject: the two constraints conflict and the resolve fails.
     """
     for override in overrides:
         server, _, requirement = override.partition(":")

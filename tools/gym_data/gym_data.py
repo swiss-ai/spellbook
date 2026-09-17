@@ -59,10 +59,8 @@ class GymDataConfig:
     # prompt's constraints, which on a base model is usually a flat-zero reward and
     # therefore zero advantage; "fraction" gives partial credit. "" leaves rows alone.
     grading_mode: str = ""
-    # Requirements to force into a single server venv once Gym has built it, as
-    # "<server dir>:<requirement>". Gym pins openai (at most 2.7.2) and ray on every
-    # server's install command line, so a server needing a newer release cannot express
-    # that in its own pyproject without failing the resolve.
+    # "<server dir>:<requirement>" entries installed into that one server venv once Gym
+    # has built it; see prepare.apply_venv_overrides for why they cannot be declared.
     venv_overrides: list[str] = dataclasses.field(default_factory=list)
     # Rows to carve off the tail into validation.jsonl. The instruction_following env
     # declares no validation dataset, and upstream NeMo-RL gym recipes point at
