@@ -78,23 +78,48 @@ srun --overlap \
         2>&1 | tee "${SPELLBOOK_VETNODE_DIR}/$(hostname).${rank}.log"
       rc=${PIPESTATUS[0]}
     fi
+    # A node that fails diagnostics and a vetnode that cannot start both exit
+    # non-zero. Only the first says anything about the hardware, so record which
+    # one happened; see the aggregation below.
+    if (( rc != 0 )) && grep -qE "ModuleNotFoundError|ImportError|command not found|No such file or directory" \
+        "${SPELLBOOK_VETNODE_DIR}/$(hostname).${rank}.log" 2>/dev/null; then
+      touch "${SPELLBOOK_VETNODE_DIR}/$(hostname).${rank}.envfail"
+    fi
     echo "${rc}" > "${SPELLBOOK_VETNODE_DIR}/$(hostname).${rank}.rc"
   ' || true
 
 SPELLBOOK_VETNODE_BAD=()
 SPELLBOOK_VETNODE_BAD_COUNT=0
+SPELLBOOK_VETNODE_ENV_BAD=()
+SPELLBOOK_VETNODE_ENV_COUNT=0
 while read -r _node; do
   _node_failed=0
+  _node_env_failed=0
   for _rank in $(seq 0 $((SPELLBOOK_VETNODE_TASKS_PER_NODE - 1))); do
     if [[ "$(cat "${SPELLBOOK_VETNODE_DIR}/${_node}.${_rank}.rc" 2>/dev/null)" != "0" ]]; then
-      _node_failed=1
+      if [[ -f "${SPELLBOOK_VETNODE_DIR}/${_node}.${_rank}.envfail" ]]; then
+        _node_env_failed=1
+      else
+        _node_failed=1
+      fi
     fi
   done
   if (( _node_failed )); then
     SPELLBOOK_VETNODE_BAD+=("${_node}")
     SPELLBOOK_VETNODE_BAD_COUNT=$((SPELLBOOK_VETNODE_BAD_COUNT + 1))
+  elif (( _node_env_failed )); then
+    SPELLBOOK_VETNODE_ENV_BAD+=("${_node}")
+    SPELLBOOK_VETNODE_ENV_COUNT=$((SPELLBOOK_VETNODE_ENV_COUNT + 1))
   fi
 done < <(scontrol show hostnames "${SLURM_JOB_NODELIST}")
+
+# vetnode itself could not start. That is an environment problem, identical on every
+# node, and excluding hardware over it walks the cluster marking healthy nodes bad.
+# Warn and run the workload unvalidated instead.
+if (( SPELLBOOK_VETNODE_ENV_COUNT > 0 )); then
+  echo "WARNING: vetnode could not run on: ${SPELLBOOK_VETNODE_ENV_BAD[*]} (environment error, logs in ${SPELLBOOK_VETNODE_DIR})" >&2
+  echo "WARNING: continuing without node validation; these nodes are not excluded" >&2
+fi
 
 if (( SPELLBOOK_VETNODE_BAD_COUNT > 0 )); then
   echo "vetnode failed on: ${SPELLBOOK_VETNODE_BAD[*]} (logs in ${SPELLBOOK_VETNODE_DIR})" >&2
@@ -104,6 +129,8 @@ if (( SPELLBOOK_VETNODE_BAD_COUNT > 0 )); then
   exit 1
 {%- endif %}
 fi
-echo "vetnode passed on all ${SLURM_JOB_NUM_NODES} node(s)"
+if (( SPELLBOOK_VETNODE_ENV_COUNT == 0 )); then
+  echo "vetnode passed on all ${SLURM_JOB_NUM_NODES} node(s)"
+fi
 rm -rf "${SPELLBOOK_VETNODE_DIR}"
 {% endif %}

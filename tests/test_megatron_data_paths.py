@@ -154,6 +154,37 @@ class DataPathTest(unittest.TestCase):
         )
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
 
+    def test_vetnode_environment_failure_warns_instead_of_excluding(self) -> None:
+        """A vetnode that cannot start says nothing about the hardware.
+
+        VetNode 0.1.5 imports tabulate without declaring it, so `vetnode diagnose`
+        died on every node and the gate excluded each one as faulty and resubmitted,
+        walking healthy nodes out of the allocation.
+        """
+        experiment = _experiment(megatron_path="/source/Megatron-LM", data_path="/data/prefix")
+
+        script = SlurmBackend(
+            account="test",
+            partition="test",
+            nodes=2,
+            gpus_per_node=4,
+            run_time="00:05:00",
+            extra={"container_edf": "test-container"},
+            vetnode=True,
+            vetnode_install="",
+        ).render(experiment)
+
+        self.assertIn("ModuleNotFoundError|ImportError|command not found", script)
+        self.assertIn(".envfail", script)
+        self.assertIn("WARNING: vetnode could not run on:", script)
+        self.assertIn("these nodes are not excluded", script)
+        # An environment failure must not reach the exclusion path.
+        self.assertLess(
+            script.index("WARNING: vetnode could not run on:"),
+            script.index("vetnode failed on:"),
+        )
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
     def test_theoretical_memory_uses_megatron_report_tool(self) -> None:
         experiment = _experiment(
             megatron_path="/users/anowak/open_source/Megatron-LM-MoE",
