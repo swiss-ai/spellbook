@@ -217,16 +217,20 @@ class SlurmNemoRLBackend:
                 "name": exp.tokenizer_dir or exp.hf_config_dir,
                 "chat_template": exp.chat_template or None,
             },
-            "pretrained_checkpoint": {
-                "format": exp.pretrained_checkpoint_format,
-                "path": exp.pretrained_checkpoint_path,
-            },
             "max_total_sequence_length": exp.max_total_sequence_length,
             # NeMo-RL base recipes may enable DTensor. This backend always uses
             # Megatron, and LMPolicy rejects configurations with both enabled.
             "dtensor_cfg": {"enabled": False},
             "megatron_cfg": self.megatron_section(exp),
         }
+        # NeMo-RL branches on the key's presence: a `pretrained_checkpoint` block sends
+        # it to the Megatron loader, so emitting an empty one makes it resolve `''` as
+        # a checkpoint root instead of importing the HF model named by `model_name`.
+        if exp.pretrained_checkpoint_path:
+            policy["pretrained_checkpoint"] = {
+                "format": exp.pretrained_checkpoint_format,
+                "path": exp.pretrained_checkpoint_path,
+            }
         if self.generates(exp):
             policy["generation"] = self.generation_section(exp)
         return policy

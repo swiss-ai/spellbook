@@ -131,5 +131,32 @@ class NemoRLBackendTest(unittest.TestCase):
             _backend(auto_requeue=True).render_recipe(_experiment(), Path(directory))
 
 
+class PretrainedCheckpointTest(unittest.TestCase):
+    def _policy(self, **kwargs: object) -> dict:
+        backend = SlurmNemoRLBackend(
+            account="test", partition="test", nodes=1, gpus_per_node=4, run_time="00:05:00"
+        )
+        return backend.policy_section(_experiment(**kwargs))
+
+    def test_absent_when_no_checkpoint_is_configured(self) -> None:
+        """NeMo-RL branches on the key's presence, not on its contents.
+
+        An empty block sends it to the Megatron loader, which then resolves '' as a
+        checkpoint root instead of importing the HF model in `model_name`.
+        """
+        self.assertNotIn("pretrained_checkpoint", self._policy(pretrained_checkpoint_path=""))
+
+    def test_present_when_a_checkpoint_is_configured(self) -> None:
+        policy = self._policy(
+            pretrained_checkpoint_path="/ckpt/iter_0000100",
+            pretrained_checkpoint_format="megatron_bridge",
+        )
+
+        self.assertEqual(
+            policy["pretrained_checkpoint"],
+            {"format": "megatron_bridge", "path": "/ckpt/iter_0000100"},
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
