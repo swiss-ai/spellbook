@@ -205,8 +205,11 @@ class SlurmNemoRLBackend:
                 "cuda_graph_impl": exp.cuda_graph_impl,
                 "num_cuda_graphs": exp.num_cuda_graphs,
                 "max_model_len": exp.max_total_sequence_length,
-                # Gym rollouts reach the policy over this HTTP endpoint.
+                # Gym rollouts reach the policy over this HTTP endpoint, and it
+                # serves them from the async engine: NeMo-RL asserts both are on
+                # before it will run against Gym at all.
                 "expose_http_server": bool(exp.gym_config_paths),
+                "async_engine": bool(exp.gym_config_paths),
             },
         }
 

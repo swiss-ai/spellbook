@@ -131,6 +131,28 @@ class NemoRLBackendTest(unittest.TestCase):
             _backend(auto_requeue=True).render_recipe(_experiment(), Path(directory))
 
 
+class GymGenerationTest(unittest.TestCase):
+    def _mcore(self, **kwargs: object) -> dict:
+        backend = SlurmNemoRLBackend(
+            account="test", partition="test", nodes=1, gpus_per_node=4, run_time="00:05:00"
+        )
+        policy = backend.policy_section(_experiment(generation_backend="megatron", **kwargs))
+        return policy["generation"]["mcore_generation_config"]
+
+    def test_gym_runs_need_the_async_engine_and_http_server(self) -> None:
+        """NeMo-RL asserts on both before it will run against Gym."""
+        mcore = self._mcore(gym_config_paths=("responses_api_agents/a/configs/a.yaml",))
+
+        self.assertTrue(mcore["async_engine"])
+        self.assertTrue(mcore["expose_http_server"])
+
+    def test_non_gym_runs_leave_both_off(self) -> None:
+        mcore = self._mcore()
+
+        self.assertFalse(mcore["async_engine"])
+        self.assertFalse(mcore["expose_http_server"])
+
+
 class PretrainedCheckpointTest(unittest.TestCase):
     def _policy(self, **kwargs: object) -> dict:
         backend = SlurmNemoRLBackend(
