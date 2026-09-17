@@ -52,6 +52,9 @@ srun \
 {%- if prefetch_config %}
     --prefetch-config "{{ prefetch_config }}" \
 {%- endif %}
+{%- for override in venv_overrides %}
+    --venv-override "{{ override }}" \
+{%- endfor %}
 {%- if not build_venvs %}
     --no-build-venvs \
 {%- endif %}

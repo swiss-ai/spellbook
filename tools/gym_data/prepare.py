@@ -145,6 +145,29 @@ def write_prefetch_config(args: argparse.Namespace, path: Path) -> Path:
     return path
 
 
+def apply_venv_overrides(venv_dir: Path, overrides: list[str]) -> None:
+    """Force requirements into one server venv after Gym has built it.
+
+    Gym appends its own `head_server_deps` pins to the `uv pip install` command line of
+    every server venv, and its pyproject caps openai at 2.7.2. A server whose own
+    dependencies need a newer release cannot say so in its pyproject: the two
+    constraints conflict and the resolve fails. Re-pinning afterwards keeps the change
+    scoped to the server that needs it instead of moving every venv off Gym's pin.
+    """
+    for override in overrides:
+        server, _, requirement = override.partition(":")
+        if not server or not requirement:
+            sys.exit(f"--venv-override wants '<server dir>:<requirement>', got: {override}")
+        venv = venv_dir / server / ".venv"
+        if not (venv / "bin" / "python").is_file():
+            sys.exit(f"--venv-override names a venv that was not built: {venv}")
+        print(f"[gym] overriding {requirement} in {venv}")
+        _run(
+            ["uv", "pip", "install", requirement],
+            env={**os.environ, "VIRTUAL_ENV": str(venv)},
+        )
+
+
 def prefetch_venvs(nemo_rl_path: Path, config: Path) -> None:
     """Build every venv through Gym's own spinup rather than reimplementing it."""
     script = nemo_rl_path / "examples" / "nemo_gym" / "prefetch_venvs.py"
@@ -229,6 +252,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--validation-rows", type=int, default=0)
     p.add_argument("--no-build-venvs", action="store_true")
     p.add_argument(
+        "--venv-override",
+        action="append",
+        default=[],
+        metavar="SERVER_DIR:REQUIREMENT",
+        help="requirement to force into one server venv after Gym builds it",
+    )
+    p.add_argument(
         "--prefetch-config",
         default="",
         help="NeMo-RL config with an env.nemo_gym block; generated from --config-path when omitted",
@@ -275,6 +305,7 @@ def main(argv: list[str] | None = None) -> int:
             else write_prefetch_config(args, Path(args.venv_dir).parent / "spellbook-prefetch.yaml")
         )
         prefetch_venvs(Path(args.nemo_rl_path), config)
+        apply_venv_overrides(Path(args.venv_dir), args.venv_override)
 
     if args.dataset_name:
         out = Path(args.output_dir) / args.dataset_name

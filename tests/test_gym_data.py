@@ -43,6 +43,53 @@ class GymDataTest(unittest.TestCase):
             ),
         )
 
+    def test_venv_overrides_reach_the_prepare_script(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            gym_home = root / "Gym"
+            gym_home.mkdir()
+            script = render(
+                GymDataConfig(
+                    name="gym-data-test",
+                    nemo_rl_path="/src/Nemo-RL",
+                    gym_home=str(gym_home),
+                    config_paths=["resources_servers/test/config.yaml"],
+                    venv_dir=str(root / "venvs"),
+                    nemo_rl_venv_dir=str(root / "actor-venvs"),
+                    uv_cache_dir=str(root / "uv-cache"),
+                    scratch_root=str(root / "gym-root"),
+                    output_dir=str(root / "data"),
+                    venv_overrides=["responses_api_models/local_vllm_model:openai==2.25.0"],
+                )
+            )
+
+        self.assertIn(
+            '--venv-override "responses_api_models/local_vllm_model:openai==2.25.0"',
+            script,
+        )
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+    def test_venv_overrides_must_name_a_server(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            gym_home = root / "Gym"
+            gym_home.mkdir()
+            cfg = GymDataConfig(
+                name="gym-data-test",
+                nemo_rl_path="/src/Nemo-RL",
+                gym_home=str(gym_home),
+                config_paths=["resources_servers/test/config.yaml"],
+                venv_dir=str(root / "venvs"),
+                nemo_rl_venv_dir=str(root / "actor-venvs"),
+                uv_cache_dir=str(root / "uv-cache"),
+                scratch_root=str(root / "gym-root"),
+                output_dir=str(root / "data"),
+                venv_overrides=["openai==2.25.0"],
+            )
+
+            with self.assertRaises(ValueError):
+                render(cfg)
+
     def test_squashfs_is_built_outside_the_container(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

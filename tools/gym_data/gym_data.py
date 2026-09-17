@@ -59,6 +59,11 @@ class GymDataConfig:
     # prompt's constraints, which on a base model is usually a flat-zero reward and
     # therefore zero advantage; "fraction" gives partial credit. "" leaves rows alone.
     grading_mode: str = ""
+    # Requirements to force into a single server venv once Gym has built it, as
+    # "<server dir>:<requirement>". Gym pins openai (at most 2.7.2) and ray on every
+    # server's install command line, so a server needing a newer release cannot express
+    # that in its own pyproject without failing the resolve.
+    venv_overrides: list[str] = dataclasses.field(default_factory=list)
     # Rows to carve off the tail into validation.jsonl. The instruction_following env
     # declares no validation dataset, and upstream NeMo-RL gym recipes point at
     # externally prepared splits, so this is off unless asked for.
@@ -113,6 +118,11 @@ def _validate(cfg: GymDataConfig) -> None:
         raise ValueError("validation_rows needs dataset_name (there is nothing to split)")
     if cfg.validation_rows < 0:
         raise ValueError("validation_rows must not be negative")
+    malformed = [override for override in cfg.venv_overrides if len(override.split(":", 1)) != 2]
+    if malformed:
+        raise ValueError(
+            "venv_overrides entries must be '<server dir>:<requirement>': " + ", ".join(malformed)
+        )
 
 
 def render(cfg: GymDataConfig) -> str:
