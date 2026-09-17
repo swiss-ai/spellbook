@@ -37,10 +37,13 @@ def head_deps() -> list[str]:
     return [f"ray[default]=={md.version('ray')}", f"openai=={openai_version}"]
 
 
-def actor_venv_ready(venv: Path) -> bool:
-    """An interrupted uv build may leave bin/python behind but no dependencies."""
+def actor_venv_ready(venv: Path, gym_home: Path) -> bool:
+    """An interrupted or differently sourced actor venv is not reusable."""
     python = venv / "bin" / "python"
-    if not python.is_file():
+    source = venv / ".nemo_gym_source"
+    if not python.is_file() or not source.is_file():
+        return False
+    if source.read_text().strip() != str(gym_home.resolve()):
         return False
     return (
         subprocess.run(
@@ -70,7 +73,7 @@ def build_actor_venv(gym_home: Path, nemo_rl_venv_dir: Path) -> None:
     torch/transformers; nemo_rl, bridge and megatron come from PYTHONPATH.
     """
     venv = nemo_rl_venv_dir / "nemo_rl.environments.nemo_gym.NemoGym"
-    if actor_venv_ready(venv):
+    if actor_venv_ready(venv, gym_home):
         print(f"[gym] actor venv present: {venv}")
         return
 
@@ -108,7 +111,8 @@ def build_actor_venv(gym_home: Path, nemo_rl_venv_dir: Path) -> None:
         cwd=gym_home,
         env={**os.environ, "VIRTUAL_ENV": str(venv)},
     )
-    if not actor_venv_ready(venv):
+    (venv / ".nemo_gym_source").write_text(f"{gym_home.resolve()}\n")
+    if not actor_venv_ready(venv, gym_home):
         raise RuntimeError(f"actor venv failed import smoke test: {venv}")
 
 
