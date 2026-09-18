@@ -22,6 +22,9 @@ srun \
 {%- if reservation %}
   --reservation={{ reservation }} \
 {%- endif %}
+{%- if qos %}
+  --qos={{ qos }} \
+{%- endif %}
 {%- if container_edf is defined and container_edf %}
   --environment="{{ container_edf }}" \
 {%- endif %}

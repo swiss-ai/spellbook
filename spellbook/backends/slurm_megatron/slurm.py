@@ -22,6 +22,10 @@ Reservation::
 
     backend = SlurmBackend(..., reservation="my-reservation")
 
+Quality of service::
+
+    backend = SlurmBackend(..., qos="normal")
+
 Running inside an existing allocation (srun mode)::
 
     backend = SlurmBackend(..., srun_job_id="12345678")
@@ -107,6 +111,7 @@ class SlurmBackend:
     nodes: int | None = None  # if None, derived from experiment.num_gpus // gpus_per_node
     log_dir: str = "slurm_logs"
     reservation: str = ""  # adds --reservation to sbatch header + sbatch cmd
+    qos: str = ""  # adds --qos to sbatch header + sbatch cmd
     dependency_singleton: bool = True  # adds --dependency=singleton to sbatch header
     no_save: bool = False  # render and submit without writing the .sh file to disk
     srun_job_id: str = ""  # when set, use srun.sh.j2 + run inside allocation
@@ -442,6 +447,7 @@ class SlurmBackend:
             "exp_name": experiment.name,
             "wandb_exp_name": d.get("wandb_exp_name", experiment.name),
             "reservation": self.reservation,
+            "qos": self.qos,
             "dependency_singleton": self.dependency_singleton,
             "auto_requeue": self.auto_requeue,
             "auto_requeue_stop_regex": self.auto_requeue_stop_regex,
@@ -576,6 +582,8 @@ class SlurmBackend:
         cmd = ["sbatch"]
         if self.reservation:
             cmd += [f"--reservation={self.reservation}"]
+        if self.qos:
+            cmd += [f"--qos={self.qos}"]
         cmd.append(script_path)
         result = subprocess.run(cmd, capture_output=True, text=True, check=False)
         if result.returncode != 0:

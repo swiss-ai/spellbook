@@ -58,6 +58,7 @@ class VLLMEvalConfig:
     memory: str = "460000"
     run_time: str = "03:00:00"
     reservation: str = ""
+    qos: str = ""
     exclude: str = ""
     conversion_job_id: str = ""
     log_dir: str = "slurm_logs/eval"
@@ -185,7 +186,7 @@ def render(cfg: VLLMEvalConfig) -> str:
     return env.get_template("vllm_eval.sh.j2").render(context)
 
 
-def _sbatch(script: str, reservation: str, exclude: str) -> str:
+def _sbatch(script: str, reservation: str, qos: str, exclude: str) -> str:
     with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as file:
         file.write(script)
         script_path = file.name
@@ -195,6 +196,8 @@ def _sbatch(script: str, reservation: str, exclude: str) -> str:
             command.append(f"--exclude={exclude}")
         if reservation:
             command.append(f"--reservation={reservation}")
+        if qos:
+            command.append(f"--qos={qos}")
         command.append(script_path)
         result = subprocess.run(command, capture_output=True, text=True, check=True)
         return result.stdout.strip().split()[-1]
@@ -205,6 +208,6 @@ def _sbatch(script: str, reservation: str, exclude: str) -> str:
 def submit(cfg: VLLMEvalConfig) -> str:
     """Render and submit one vLLM evaluation job."""
     (Path(cfg.log_dir).expanduser() / cfg.model_name).mkdir(parents=True, exist_ok=True)
-    job_id = _sbatch(render(cfg), cfg.reservation, cfg.exclude)
+    job_id = _sbatch(render(cfg), cfg.reservation, cfg.qos, cfg.exclude)
     print(f"  {cfg.model_name}: submitted → job {job_id}")
     return job_id

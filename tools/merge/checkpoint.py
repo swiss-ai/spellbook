@@ -44,6 +44,7 @@ class MegatronCheckpointMergeConfig:
     memory: str = "460000"
     run_time: str = "05:00:00"
     reservation: str = ""
+    qos: str = ""
     exclude: str = ""
     log_dir: str = "slurm_logs/merge"
     srun_extra_args: str = ""
@@ -161,14 +162,15 @@ def render(cfg: MegatronCheckpointMergeConfig) -> str:
     return env.get_template("checkpoint.sh.j2").render(context)
 
 
-def _sbatch(script: str) -> str:
-    result = subprocess.run(["sbatch"], input=script, capture_output=True, text=True, check=True)
+def _sbatch(script: str, qos: str = "") -> str:
+    cmd = ["sbatch"] + ([f"--qos={qos}"] if qos else [])
+    result = subprocess.run(cmd, input=script, capture_output=True, text=True, check=True)
     return result.stdout.strip().split()[-1]
 
 
 def submit(cfg: MegatronCheckpointMergeConfig) -> str:
     """Render and submit a checkpoint merge job."""
     Path(cfg.log_dir).expanduser().mkdir(parents=True, exist_ok=True)
-    job_id = _sbatch(render(cfg))
+    job_id = _sbatch(render(cfg), cfg.qos)
     print(f"  {cfg.name}: submitted → job {job_id}")
     return job_id

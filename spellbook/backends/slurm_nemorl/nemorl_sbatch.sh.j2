@@ -14,6 +14,9 @@
 {%- if reservation %}
 #SBATCH --reservation={{ reservation }}
 {%- endif %}
+{%- if qos %}
+#SBATCH --qos={{ qos }}
+{%- endif %}
 #SBATCH --nodes={{ nodes }}
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task={{ cpus_per_task }}

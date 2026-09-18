@@ -70,6 +70,7 @@ class GymDataConfig:
     account: str = ""
     partition: str = ""
     reservation: str = ""
+    qos: str = ""
     run_time: str = "02:00:00"
     cpus_per_task: int = 72
     container: str = ""

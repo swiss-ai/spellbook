@@ -98,6 +98,7 @@ class MegatronEvalConfig:
     srun_extra_args: str = ""  # extra flags appended verbatim to srun
     run_time: str = "03:00:00"
     reservation: str = ""
+    qos: str = ""
     exclude: str = ""  # Slurm node list passed to --exclude
     log_dir: str = "slurm_logs/eval"
     watcher_dir: str = ""  # generated watcher scripts; defaults to <project>/evals
@@ -362,7 +363,7 @@ def _clean_sbatch_env() -> dict[str, str]:
     return env
 
 
-def _sbatch(script: str, reservation: str, exclude: str) -> str:
+def _sbatch(script: str, reservation: str, qos: str, exclude: str) -> str:
     with tempfile.NamedTemporaryFile(mode="w", suffix=".sh", delete=False) as f:
         f.write(script)
         tmp_path = f.name
@@ -372,6 +373,8 @@ def _sbatch(script: str, reservation: str, exclude: str) -> str:
             cmd += [f"--exclude={exclude}"]
         if reservation:
             cmd += [f"--reservation={reservation}"]
+        if qos:
+            cmd += [f"--qos={qos}"]
         cmd.append(tmp_path)
         result = subprocess.run(
             cmd,
@@ -439,6 +442,7 @@ def render_watcher_script(
         "partition": cfg.partition,
         "log_dir": str(log_dir.resolve()),
         "reservation": cfg.reservation,
+        "qos": cfg.qos,
         "watch_checkpoint_dir": str(checkpoint_dir),
         "stop_file": str(stop_file),
         "state_file": str(state_dir / watcher_name / ".submitted_steps"),
@@ -466,6 +470,7 @@ def _submit_checkpoints(
     job_id = _sbatch(
         _render_checkpoints(cfg, checkpoints, dependency_singleton),
         cfg.reservation,
+        cfg.qos,
         cfg.exclude,
     )
     steps = ",".join(str(step) for step, _ in checkpoints)

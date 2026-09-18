@@ -11,6 +11,9 @@
 {%- if reservation %}
 #SBATCH --reservation={{ reservation }}
 {%- endif %}
+{%- if qos %}
+#SBATCH --qos={{ qos }}
+{%- endif %}
 
 set -euo pipefail
 

@@ -321,6 +321,12 @@ Common reliability controls are available across training backends:
 - `kernel_cache=True` reuses Triton and TorchInductor caches; optional warmup jobs populate them.
 - `auto_requeue=True` continues long jobs and stops when training completion is detected.
 
+`reservation` and `qos` add `--reservation` and `--qos` to the rendered `#SBATCH`
+header and to the `sbatch` call, and are also carried into auto-requeue resubmissions
+and memory-estimator `srun` calls. Both default to empty, meaning the flag is omitted.
+The same fields exist on `SlurmNemoRLBackend`, the eval configs, and the `tools/`
+submitters.
+
 `extra` supplies template values such as container settings. `srun_extra_args` is
 reserved for flags passed to `srun`.
 

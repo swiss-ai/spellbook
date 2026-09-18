@@ -36,6 +36,7 @@ class HFConversionConfig:
     run_time: str = "03:00:00"
     memory: str = "460000"
     reservation: str = ""
+    qos: str = ""
     exclude: str = ""
     log_dir: str = "slurm_logs/conversion"
 
@@ -222,6 +223,7 @@ def render_submission(cfg: HFConversionConfig) -> tuple[list[str], dict[str, str
         ("time", cfg.run_time),
         ("mem", cfg.memory),
         ("reservation", cfg.reservation),
+        ("qos", cfg.qos),
         ("exclude", cfg.exclude),
     ):
         if value:

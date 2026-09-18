@@ -75,6 +75,7 @@ class SlurmNemoRLBackend:
     nodes: int = 1
     cpus_per_task: int = 72
     reservation: str = ""
+    qos: str = ""
     container: str = ""
     container_mounts: str = ""
     srun_job_id: str = ""  # run inside an existing allocation instead of sbatch
@@ -385,6 +386,7 @@ class SlurmNemoRLBackend:
             account=self.account,
             partition=self.partition,
             reservation=self.reservation,
+            qos=self.qos,
             nodes=self.nodes,
             cpus_per_task=self.cpus_per_task,
             gpus_per_node=self.gpus_per_node,
@@ -459,7 +461,10 @@ class SlurmNemoRLBackend:
                 "standalone",
             ]
         else:
-            cmd = ["sbatch", "--parsable", str(Path(script).with_suffix(".sbatch"))]
+            cmd = ["sbatch", "--parsable"]
+            if self.qos:
+                cmd.append(f"--qos={self.qos}")
+            cmd.append(str(Path(script).with_suffix(".sbatch")))
         return subprocess.run(cmd, capture_output=True, text=True, check=True).stdout.strip()
 
 
