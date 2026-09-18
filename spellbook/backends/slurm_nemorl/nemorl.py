@@ -204,6 +204,10 @@ class SlurmNemoRLBackend:
             "mcore_generation_config": {
                 "cuda_graph_impl": exp.cuda_graph_impl,
                 "num_cuda_graphs": exp.num_cuda_graphs,
+                # NeMo-RL's base recipe pairs cuda_graph_impl="local" with scope
+                # "block" and asserts they agree, so turning the graphs off has to
+                # turn the scope off with them.
+                **({"inference_cuda_graph_scope": "none"} if exp.cuda_graph_impl == "none" else {}),
                 "max_model_len": exp.max_total_sequence_length,
                 # Gym rollouts reach the policy over this HTTP endpoint, and it
                 # serves them from the async engine: NeMo-RL asserts both are on
