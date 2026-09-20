@@ -181,11 +181,6 @@ class NemoRLExperiment(Experiment):
         if self.gym_config_paths:
             if not self.gym_home:
                 raise ValueError("gym_config_paths needs gym_home (the Gym checkout root).")
-            if self.generation_backend != "megatron":
-                raise ValueError(
-                    "the Gym integration drives the Megatron generation backend's HTTP "
-                    "server; set generation_backend='megatron'."
-                )
             missing = [
                 name
                 for name in (
