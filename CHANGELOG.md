@@ -16,6 +16,9 @@ Notable changes to Spellbook are documented here.
   with `SlurmBackend(numa_bind=False)`, leaving CPU affinity to Slurm.
 - Slurm launches can use a non-login command shell with
   `SlurmBackend(login_shell=False)` when all environment setup is explicit.
+- A theoretical-memory launch mode that runs the selected Megatron checkout's
+  `tools/report_theoretical_memory.py`, mutually exclusive with the bundled
+  memory estimator.
 - A shared CSCS vetnode preflight for Megatron training, Megatron evaluation,
   and NeMo-RL. It runs one Slurm task per GPU with local-rank NUMA binding,
   validates the environment, GPUs, CUDA, and NCCL bandwidth, and can maintain a
@@ -34,12 +37,21 @@ Notable changes to Spellbook are documented here.
 - A worked two-node Apertus KDA 5B GRPO example using NeMo Gym, including data
   preparation, squashfs-mounted Gym environments, and a clean run-local
   checkpoint directory.
-- A `tools` package for standalone operational launchers, containing the
-  multi-node Megatron dynamic-inference HTTP server and a distributed Slurm
-  launcher for Megatron checkpoint merging (e.g. checkpoint averaging)
+- NeMo Gym runs can use the vLLM generation backend as well as the Megatron
+  generation backend.
+- A `tools` package for standalone Megatron inference and checkpoint-merge
+  launchers, with local or Git-backed Megatron sources, commit pinning,
+  container copies, NUMA-bound workers, and a dependency-free inference client.
 - Configurable checkpoint/evaluation grouping for Megatron jobs, allowing each
   axis to use shared or separate allocations while retaining per-run outputs,
   environments, and WandB names and IDs.
+- Generic lm-eval model-argument overrides through
+  `MegatronEvalConfig(model_args_extra)`, so adapter-specific options do not
+  require one-off Spellbook fields.
+- Self-scheduling evaluation watchers can build model- and group-specific
+  configs, isolate grouped state, logs, and scripts, serialize group chains when
+  requested, use caller-owned runtime and state directories, and run from the
+  caller's project directory.
 - A single-node Slurm launcher for lm-evaluation-harness's standard vLLM
   backend, with tensor and data parallel options, common lm-eval settings,
   install hooks, caching, and WandB integration.
@@ -60,24 +72,29 @@ Notable changes to Spellbook are documented here.
 
 ### Changed
 
-- Python formatting is standardized on Ruff with a 100-character line length.
-- Megatron auto-requeue uses shared backend templates that support both
-  log-regex completion and NeMo-RL checkpoint-step completion.
+- Megatron auto-requeue uses shared backend templates for regex-based
+  completion and NeMo-RL checkpoint-step completion, and cancels the queued
+  successor when the training completion marker is reached.
 - Scheduler and Ray launcher logs for NeMo-RL, plus NeMo Gym preparation logs,
   default below `$SCRATCH/tmp/spellbook/nemorl` instead of the source checkout.
 - NeMo Gym environments are prepared outside training and mounted directly at
   their expected paths, so training jobs only consume immutable prepared
   artifacts.
-- Megatron evaluation launches now use the shared IOPStor readiness barrier after container copy and package installation, with a ten-minute default timeout.
-- Slurm Megatron task launches now use a shared IOPStor readiness barrier after Megatron copying and package installation, so every rank waits for all ranks before starting Python; the default timeout is 10 minutes.
+- Megatron training, task-mode, existing-allocation, and evaluation launches
+  share an IOPStor readiness barrier after container copy and package
+  installation; all ranks wait before Python starts, with a ten-minute default
+  timeout.
 - Megatron evaluation prefetch now builds lm-eval task-derived dataset caches on
   rank zero before releasing distributed ranks, including custom task paths.
+- Megatron evaluation and checkpoint watchers can record consumed-token WandB
+  metadata and cumulative checkpoint FLOPs while retaining checkpoint and
+  optimizer-step reporting.
 - NeMo-RL launches the Ray head and its workers as tasks of a single `srun` step, so
   distributed actors share one Slingshot VNI. Workers wait on a shared completion marker
   and shut down after the head driver exits.
-- NeMo-RL container jobs use the image's PATH-selected interpreter, with uv kept at the
-  host-side launcher boundary. The readiness probe and entrypoint still run through uv,
-  and `WANDB_ENTITY` is forwarded across the Slurm/container boundary.
+- NeMo-RL container jobs use the image's PATH-selected Python directly for Ray
+  readiness and the driver, and forward `WANDB_ENTITY` across the
+  Slurm/container boundary.
 - NeMo-RL `srun` steps export an explicit variable list instead of `--export=ALL`,
   mirroring the Megatron backend, so the submitting shell's environment no longer shadows
   the image's packages.
@@ -114,8 +131,10 @@ Notable changes to Spellbook are documented here.
   in built distributions.
 - Kept the worked NeMo-RL example from auto-resuming an unrelated checkpoint by
   assigning it a run-local checkpoint directory.
-- Megatron evaluation metadata lookup now honors an explicit model `load` path,
-  while retaining `checkpoint_dir/model_name` as the default.
+- Megatron evaluation metadata lookup follows the effective model load path and
+  checkpoint step, including `release` or numeric
+  `latest_checkpointed_iteration.txt` trackers; it defaults to
+  `checkpoint_dir/model_name`.
 - lm-eval dataset prefetch now passes the configured metadata to task loading.
   This fixes RULER tasks that need the tokenizer and context-length metadata to
   generate their synthetic datasets.
@@ -127,6 +146,11 @@ Notable changes to Spellbook are documented here.
   instead of redundantly overriding `--nodes`, `--ntasks`, or
   `--ntasks-per-node` in `srun`. This avoids incorrect worker creation on Slurm
   configurations where job-step task overrides conflict with the allocation.
+- Existing-allocation Megatron launches propagate `torchrun` failures through
+  the rank-zero `tee` pipeline instead of masking them.
+- Evaluation submissions no longer inherit the caller's Python environment;
+  dataset prefetch uses the container interpreter and strips `VIRTUAL_ENV`,
+  `PYTHONPATH`, and `PYTHONHOME` at the `sbatch` boundary.
 - Cache-hit warmups no longer enter distributed cache-save cleanup.
 - Megatron inference servers bind to each node's routable IP instead of assuming
   its hostname names a local network interface.
