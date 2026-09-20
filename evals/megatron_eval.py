@@ -25,11 +25,18 @@ from datetime import datetime
 from enum import Enum
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from evals import flags as lm_eval_flags
+from spellbook.megatron.source import (
+    is_megatron_url,
+    normalize_container_path,
+    source_cache_key,
+    worktree_cache_key,
+)
+
+_is_megatron_url = is_megatron_url
 
 _TEMPLATES_DIR = Path(__file__).parent
 _SHARED_TEMPLATES_DIR = Path(__file__).resolve().parent.parent / "spellbook" / "backends"
@@ -201,13 +208,6 @@ def _validate_eval_runs(cfg: MegatronEvalConfig) -> None:
             raise ValueError(f"eval run {run.name!r} tasks must not be empty")
 
 
-def _is_megatron_url(value: str) -> bool:
-    parsed = urlparse(value)
-    return (parsed.scheme in {"git", "http", "https", "ssh"} and bool(parsed.netloc)) or (
-        value.startswith("git@") and ":" in value
-    )
-
-
 def _checkpoint_load_path(cfg: MegatronEvalConfig, reporting_step: int) -> Path:
     """Resolve the checkpoint directory Megatron will actually load."""
     model_root = Path(cfg.model_args_extra.get("load", Path(cfg.checkpoint_dir) / cfg.model_name))
@@ -235,17 +235,10 @@ def _render_checkpoints(
             f"Unsupported MegatronEvalConfig.launch_mode={cfg.launch_mode!r}; "
             "expected 'torchrun' or 'tasks'."
         )
-    container_path = cfg.megatron_container_path.rstrip("/")
-    if (
-        not container_path.startswith("/")
-        or container_path == ""
-        or ".." in container_path.split("/")
-        or re.fullmatch(r"/[A-Za-z0-9_./-]+", container_path) is None
-        or len([part for part in container_path.split("/") if part]) < 2
-    ):
-        raise ValueError(
-            "MegatronEvalConfig.megatron_container_path must be a shell-safe absolute path with at least two components"
-        )
+    container_path = normalize_container_path(
+        cfg.megatron_container_path,
+        field_name="MegatronEvalConfig.megatron_container_path",
+    )
     if cfg.prefetch_timeout_seconds <= 0:
         raise ValueError("prefetch_timeout_seconds must be greater than zero")
     _validate_eval_runs(cfg)
@@ -261,16 +254,14 @@ def _render_checkpoints(
     ctx["vetnode_config"] = cfg.vetnode_config or str(_SHARED_TEMPLATES_DIR / "vetnode-config.yaml")
     # Keys the persistent exclusion list; model_name scopes it per eval target.
     ctx["vetnode_key"] = hashlib.sha256(cfg.model_name.encode()).hexdigest()[:16]
-    if _is_megatron_url(cfg.megatron_path):
+    if is_megatron_url(cfg.megatron_path):
         ctx["megatron_url"] = cfg.megatron_path
         ctx["megatron_path"] = ""
-        ctx["megatron_cache_key"] = hashlib.sha256(cfg.megatron_path.encode()).hexdigest()[:16]
+        ctx["megatron_cache_key"] = source_cache_key(cfg.megatron_path)
     else:
         ctx["megatron_url"] = ""
         ctx["megatron_cache_key"] = ""
-    ctx["megatron_worktree_key"] = hashlib.sha256(
-        f"{cfg.megatron_path}\0{cfg.megatron_commit}".encode()
-    ).hexdigest()[:16]
+    ctx["megatron_worktree_key"] = worktree_cache_key(cfg.megatron_path, cfg.megatron_commit)
     if not checkpoints:
         raise ValueError("checkpoints must not be empty")
     if len({step for step, _ in checkpoints}) != len(checkpoints):

@@ -43,7 +43,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import shlex
 import subprocess
 import tempfile
@@ -51,24 +50,21 @@ import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
 
 import pandas as pd
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from spellbook.backends.slurm_megatron.create_data_config import create_data_prefix
 from spellbook.core.experiment import Experiment
+from spellbook.megatron.source import (
+    is_megatron_url,
+    normalize_container_path,
+    source_cache_key,
+    worktree_cache_key,
+)
 
 _TEMPLATES_DIR = Path(__file__).parent  # slurm_megatron/
 _SHARED_TEMPLATES_DIR = Path(__file__).resolve().parent.parent
-
-
-def _is_megatron_url(value: str) -> bool:
-    """Return whether a Megatron source is a supported Git URL."""
-    parsed = urlparse(value)
-    return (parsed.scheme in {"git", "http", "https", "ssh"} and bool(parsed.netloc)) or (
-        value.startswith("git@") and ":" in value
-    )
 
 
 # Variables always forwarded to srun workers regardless of experiment env_vars.
@@ -311,31 +307,23 @@ class SlurmBackend:
 
     def _resolve_megatron_source(self, d: dict[str, Any]) -> None:
         """Split megatron_path into a local checkout or a URL plus its cache keys."""
-        container_path = str(d.get("megatron_container_path") or "").rstrip("/")
-        if (
-            not container_path.startswith("/")
-            or container_path == ""
-            or ".." in container_path.split("/")
-            or re.fullmatch(r"/[A-Za-z0-9_./-]+", container_path) is None
-            or len([part for part in container_path.split("/") if part]) < 2
-        ):
-            raise ValueError(
-                "MegatronExperiment.megatron_container_path must be a shell-safe absolute path with at least two components"
-            )
-        d["megatron_container_path"] = container_path
+        d["megatron_container_path"] = normalize_container_path(
+            str(d.get("megatron_container_path") or ""),
+            field_name="MegatronExperiment.megatron_container_path",
+        )
 
         megatron_source = str(d.get("megatron_path") or "")
-        if _is_megatron_url(megatron_source):
+        if is_megatron_url(megatron_source):
             d["megatron_url"] = megatron_source
             d["megatron_path"] = ""
-            d["megatron_cache_key"] = hashlib.sha256(megatron_source.encode()).hexdigest()[:16]
+            d["megatron_cache_key"] = source_cache_key(megatron_source)
         else:
             d["megatron_url"] = ""
             d["megatron_cache_key"] = ""
         # Source and commit together, so two pins of one repo get separate worktrees.
-        d["megatron_worktree_key"] = hashlib.sha256(
-            f"{megatron_source}\0{d.get('megatron_commit') or ''}".encode()
-        ).hexdigest()[:16]
+        d["megatron_worktree_key"] = worktree_cache_key(
+            megatron_source, str(d.get("megatron_commit") or "")
+        )
 
     def _validate_pre_launch(self) -> None:
         """Reject settings that would otherwise fail silently or loop forever."""

@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 import dataclasses
-import hashlib
 import re
 import subprocess
 from pathlib import Path
-from urllib.parse import urlparse
 
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
+
+from spellbook.megatron.source import (
+    is_megatron_url,
+    normalize_container_path,
+    source_cache_key,
+    worktree_cache_key,
+)
 
 _TEMPLATES_DIR = Path(__file__).parent
 _BACKEND_TEMPLATES_DIR = Path(__file__).parents[2] / "spellbook/backends/slurm_megatron"
@@ -54,13 +59,6 @@ class MegatronCheckpointMergeConfig:
     env_vars: dict[str, str] = dataclasses.field(default_factory=dict)
 
 
-def _is_megatron_url(value: str) -> bool:
-    parsed = urlparse(value)
-    return (parsed.scheme in {"git", "http", "https", "ssh"} and bool(parsed.netloc)) or (
-        value.startswith("git@") and ":" in value
-    )
-
-
 def _validate(cfg: MegatronCheckpointMergeConfig) -> None:
     if not _JOB_NAME.fullmatch(cfg.name):
         raise ValueError("name may contain only letters, numbers, dots, underscores, and hyphens")
@@ -68,16 +66,7 @@ def _validate(cfg: MegatronCheckpointMergeConfig) -> None:
         raise ValueError("checkpoint merging requires at least two checkpoints")
     if not cfg.output or not cfg.megatron_path:
         raise ValueError("output and megatron_path must not be empty")
-    container_path = cfg.megatron_container_path.rstrip("/")
-    if (
-        not container_path.startswith("/")
-        or ".." in container_path.split("/")
-        or re.fullmatch(r"/[A-Za-z0-9_./-]+", container_path) is None
-        or len([part for part in container_path.split("/") if part]) < 2
-    ):
-        raise ValueError(
-            "megatron_container_path must be a shell-safe absolute path with at least two components"
-        )
+    normalize_container_path(cfg.megatron_container_path)
     for field_name in ("nodes", "workers_per_node", "cpus_per_task"):
         if getattr(cfg, field_name) <= 0:
             raise ValueError(f"{field_name} must be greater than zero")
@@ -144,18 +133,16 @@ def render(cfg: MegatronCheckpointMergeConfig) -> str:
         keep_trailing_newline=True,
     )
     context = dataclasses.asdict(cfg)
-    megatron_url = cfg.megatron_path if _is_megatron_url(cfg.megatron_path) else ""
+    megatron_url = cfg.megatron_path if is_megatron_url(cfg.megatron_path) else ""
     context.update(
         {
             "log_dir": str(Path(cfg.log_dir).expanduser().resolve()),
             "total_workers": cfg.nodes * cfg.workers_per_node,
             "megatron_path": ("" if megatron_url else str(Path(cfg.megatron_path).expanduser())),
             "megatron_url": megatron_url,
-            "megatron_cache_key": hashlib.sha256(cfg.megatron_path.encode()).hexdigest()[:16],
-            "megatron_worktree_key": hashlib.sha256(
-                f"{cfg.megatron_path}\0{cfg.megatron_commit}".encode()
-            ).hexdigest()[:16],
-            "megatron_container_path": cfg.megatron_container_path.rstrip("/"),
+            "megatron_cache_key": source_cache_key(cfg.megatron_path),
+            "megatron_worktree_key": worktree_cache_key(cfg.megatron_path, cfg.megatron_commit),
+            "megatron_container_path": normalize_container_path(cfg.megatron_container_path),
             "merge_args": [_shell_double_quote(arg) for arg in _merge_args(cfg)],
         }
     )

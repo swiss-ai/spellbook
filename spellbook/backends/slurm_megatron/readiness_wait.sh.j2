@@ -1,0 +1,16 @@
+# Publish readiness only after copy and package installation have completed.
+printf "%s\n" "$(hostname)" > "${SPELLBOOK_READY_DIR}/${SLURM_PROCID}.ready.tmp"
+mv -f "${SPELLBOOK_READY_DIR}/${SLURM_PROCID}.ready.tmp" "${SPELLBOOK_READY_DIR}/${SLURM_PROCID}.ready"
+READY_WAIT_START="${SECONDS}"
+while true; do
+  READY_COUNT="$(find "${SPELLBOOK_READY_DIR}" -maxdepth 1 -type f -name '*.ready' | wc -l)"
+  if (( READY_COUNT >= SLURM_NTASKS )); then
+    break
+  fi
+  if (( SECONDS - READY_WAIT_START >= SPELLBOOK_READY_TIMEOUT )); then
+    echo "Timed out waiting for all ranks: ${READY_COUNT}/${SLURM_NTASKS} ready" >&2
+    find "${SPELLBOOK_READY_DIR}" -maxdepth 1 -type f -name '*.ready' -printf '%f\n' | sort >&2
+    exit 1
+  fi
+  sleep 1
+done
