@@ -98,6 +98,9 @@ Notable changes to Spellbook are documented here.
 
 ### Fixed
 
+- Serialized dynamic lm-eval installation across evaluation nodes with a shared
+  `flock`, preventing node leaders from racing on the shared pip cache and failing
+  with stale file handles.
 - Exported the resolved Ray head address and shared lifecycle markers into
   NeMo-RL containers so multi-node workers and the driver join the same cluster.
 - Applied `SlurmNemoRLBackend.srun_extra_args` to batch launches as well as

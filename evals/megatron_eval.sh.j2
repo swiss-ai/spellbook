@@ -255,7 +255,12 @@ if [[ "${SLURM_LOCALID:-0}" == "0" ]]; then
   (
     set -e
 {% if lm_eval_install %}
-{% if lm_eval_install_with_python %}python -m {% endif %}pip install {{ lm_eval_install }} --no-build-isolation
+SPELLBOOK_LM_EVAL_LOCK="${LM_HARNESS_CACHE_PATH:-${SCRATCH:-/iopsstor/scratch/cscs/${USER}}/tmp/spellbook/lm-eval}/install.lock"
+mkdir -p "$(dirname "${SPELLBOOK_LM_EVAL_LOCK}")"
+(
+  flock -x 9
+  {% if lm_eval_install_with_python %}python -m {% endif %}pip install {{ lm_eval_install }} --no-build-isolation
+) 9>"${SPELLBOOK_LM_EVAL_LOCK}"
 {% endif %}
 {% if install_commands %}
 # --- Install packages ---

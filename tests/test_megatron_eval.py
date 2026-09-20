@@ -195,6 +195,18 @@ class MegatronPathTest(unittest.TestCase):
         self.assertIn("task_manager = eval_config.process_tasks()", script)
         self.assertIn("get_task_dict(eval_config.tasks, task_manager=task_manager)", script)
 
+    def test_lm_eval_install_uses_a_shared_lock(self) -> None:
+        cfg = _config("/path/to/Megatron-LM")
+        cfg.lm_eval_install = "lm_eval @ git+https://example.com/lm-eval.git@abc123"
+        cfg.lm_eval_install_with_python = True
+
+        script = _render(cfg, 10, False)
+
+        self.assertIn('SPELLBOOK_LM_EVAL_LOCK="${LM_HARNESS_CACHE_PATH:-', script)
+        self.assertIn("flock -x 9", script)
+        self.assertIn("python -m pip install lm_eval @ git+https://example.com", script)
+        self.assertIn('9>"${SPELLBOOK_LM_EVAL_LOCK}"', script)
+
     def test_missing_dotenv_file_is_allowed(self) -> None:
         script = _render(_config("/path/to/Megatron-LM"), 10, False)
 
