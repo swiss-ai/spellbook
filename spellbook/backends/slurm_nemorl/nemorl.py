@@ -39,7 +39,7 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
 # Forwarded to every srun step. The list is explicit rather than --export=ALL:
 # ALL hands the submitting shell's environment to the container, so a $HOME/.local/bin
 # entry on PATH shadows the image's interpreter and an inherited PYTHONPATH shadows
-# its packages. Matches _SRUN_INFRA_EXPORTS in slurm_megatron.
+# its packages. Backend-specific Ray variables supplement the common Slurm exports.
 _SRUN_INFRA_EXPORTS = [
     "SLURM_JOB_ID",
     "SLURM_NETWORK",

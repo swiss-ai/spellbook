@@ -32,6 +32,7 @@ AXIS_KEYS: dict[str, tuple[str, ...]] = {
     "flops": ("flops", "cumulative-flops", "cumulative_flops"),
     "lr": ("learning-rate", "learning_rate", "lr"),
 }
+AXIS_ALIASES = frozenset(key for aliases in AXIS_KEYS.values() for key in aliases)
 
 
 @dataclasses.dataclass
@@ -44,7 +45,7 @@ class RunSeries:
 
 
 def required_history_keys(report: Report) -> list[str]:
-    keys = {key for aliases in AXIS_KEYS.values() for key in aliases}
+    keys = set(AXIS_ALIASES)
     for plot in report.plots:
         if isinstance(
             plot,
@@ -191,7 +192,7 @@ def _load_run_history(run, keys: Sequence[str], cache_dir: Path, *, refresh: boo
             return pd.DataFrame(payload["rows"])
 
     available = set((run.summary or {}).keys())
-    axis_keys = {key for aliases in AXIS_KEYS.values() for key in aliases}
+    axis_keys = AXIS_ALIASES
     # Axis values are often logged in history without being copied into the
     # final W&B summary. Always request them so token/FLOP plots remain usable.
     requested = [key for key in keys if key in available or key in axis_keys]
@@ -251,7 +252,7 @@ def _wandb_metric_key(metric: str) -> str:
 
 
 def _namespace_metrics(frame: pd.DataFrame, namespace: str) -> pd.DataFrame:
-    axis_keys = {key for aliases in AXIS_KEYS.values() for key in aliases}
+    axis_keys = AXIS_ALIASES
     return frame.rename(
         columns={
             column: f"{namespace}::{column}" for column in frame.columns if column not in axis_keys

@@ -1176,10 +1176,6 @@ def _eval_label(adjusted: bool, scale: float) -> str:
     return ("chance-adjusted score" if adjusted else "raw score") + suffix
 
 
-def _metric_list(metrics: Sequence[str], group: str | None = None) -> str:
-    return textwrap.fill(", ".join(_metric_label(metric, group) for metric in metrics), width=58)
-
-
 def _metric_summary(metrics: Sequence[str]) -> str:
     """Compact benchmark names for plot subtitles; full keys remain in report JSON."""
     aliases = {
@@ -1291,13 +1287,6 @@ def _heatmap_metric_label(metric: str, plot: TaskHeatmap) -> str:
         else:
             detail = namespace.replace("_", " ")
     return f"{task_name} - {detail}"
-
-
-def _max_metric_lines(task_groups: Mapping[str, Sequence[str]]) -> int:
-    return max(
-        (_metric_list(metrics, group).count("\n") + 1 for group, metrics in task_groups.items()),
-        default=1,
-    )
 
 
 def _save(fig, root: Path, stem: str) -> None:
