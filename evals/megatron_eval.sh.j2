@@ -255,12 +255,35 @@ if [[ "${SLURM_LOCALID:-0}" == "0" ]]; then
   (
     set -e
 {% if lm_eval_install %}
-SPELLBOOK_LM_EVAL_LOCK="${LM_HARNESS_CACHE_PATH:-${SCRATCH:-/iopsstor/scratch/cscs/${USER}}/tmp/spellbook/lm-eval}/install.lock"
-mkdir -p "$(dirname "${SPELLBOOK_LM_EVAL_LOCK}")"
-(
-  flock -x 9
-  {% if lm_eval_install_with_python %}python -m {% endif %}pip install {{ lm_eval_install }} --no-build-isolation
-) 9>"${SPELLBOOK_LM_EVAL_LOCK}"
+SPELLBOOK_PIP=({% if lm_eval_install_with_python %}python -m pip{% else %}pip{% endif %})
+SPELLBOOK_PYTHON_SITE="$("${SPELLBOOK_PIP[@]}" show pip | sed -n 's/^Location: //p' | head -n 1)"
+if [[ -z "${SPELLBOOK_PYTHON_SITE}" ]]; then
+  echo "Cannot determine the Python installation used by ${SPELLBOOK_PIP[*]}" >&2
+  exit 1
+fi
+SPELLBOOK_PYTHON_SITE="$(realpath -m "${SPELLBOOK_PYTHON_SITE}")"
+SPELLBOOK_SHARED_PYTHON=0
+for SPELLBOOK_SHARED_ROOT in \
+  "${HOME:-}" /users /iopsstor /capstor /ritom /project; do
+  [[ -n "${SPELLBOOK_SHARED_ROOT}" ]] || continue
+  SPELLBOOK_SHARED_ROOT="$(realpath -m "${SPELLBOOK_SHARED_ROOT}")"
+  if [[ "${SPELLBOOK_PYTHON_SITE}" == "${SPELLBOOK_SHARED_ROOT}" ||
+        "${SPELLBOOK_PYTHON_SITE}" == "${SPELLBOOK_SHARED_ROOT}/"* ]]; then
+    SPELLBOOK_SHARED_PYTHON=1
+    break
+  fi
+done
+if (( SPELLBOOK_SHARED_PYTHON )); then
+  echo "Warning (we should be installing inside the container): Using a shared Python installation at ${SPELLBOOK_PYTHON_SITE}, locking package installation"
+  SPELLBOOK_LM_EVAL_LOCK="${LM_HARNESS_CACHE_PATH:-${SCRATCH:-/iopsstor/scratch/cscs/${USER}}/tmp/spellbook/lm-eval}/install.lock"
+  mkdir -p "$(dirname "${SPELLBOOK_LM_EVAL_LOCK}")"
+  (
+    flock -x 9
+    "${SPELLBOOK_PIP[@]}" install {{ lm_eval_install }} --no-build-isolation
+  ) 9>"${SPELLBOOK_LM_EVAL_LOCK}"
+else
+  "${SPELLBOOK_PIP[@]}" install {{ lm_eval_install }} --no-build-isolation --no-cache-dir
+fi
 {% endif %}
 {% if install_commands %}
 # --- Install packages ---
@@ -283,7 +306,7 @@ if [[ "${INSTALL_RC}" != "0" ]]; then
 fi
 {% endif %}
 
-# Publish readiness only after copy and package installation have completed.
+# Publish readiness to the other nodes only after copy and package installation have completed.
 printf "%s\n" "$(hostname)" > "${SPELLBOOK_READY_DIR}/${SLURM_PROCID}.ready.tmp"
 mv -f "${SPELLBOOK_READY_DIR}/${SLURM_PROCID}.ready.tmp" "${SPELLBOOK_READY_DIR}/${SLURM_PROCID}.ready"
 READY_WAIT_START="${SECONDS}"

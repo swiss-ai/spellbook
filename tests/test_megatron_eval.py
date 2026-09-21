@@ -106,8 +106,12 @@ class MegatronPathTest(unittest.TestCase):
         first = _render(_config("https://example.com/first.git", "abc123"), 10, False)
         second = _render(_config("https://example.com/second.git", "abc123"), 10, False)
 
-        first_key = hashlib.sha256(b"https://example.com/first.git\0abc123").hexdigest()[:16]
-        second_key = hashlib.sha256(b"https://example.com/second.git\0abc123").hexdigest()[:16]
+        first_key = hashlib.sha256(
+            b"https://example.com/first.git\0abc123"
+        ).hexdigest()[:16]
+        second_key = hashlib.sha256(
+            b"https://example.com/second.git\0abc123"
+        ).hexdigest()[:16]
         self.assertIn(f"megatron_worktrees/{first_key}", first)
         self.assertIn(f"megatron_worktrees/{second_key}", second)
         self.assertNotEqual(first_key, second_key)
@@ -193,19 +197,33 @@ class MegatronPathTest(unittest.TestCase):
         self.assertIn('tasks=["/tasks/custom_task.yaml"]', script)
         self.assertIn('include_path="/tasks"', script)
         self.assertIn("task_manager = eval_config.process_tasks()", script)
-        self.assertIn("get_task_dict(eval_config.tasks, task_manager=task_manager)", script)
+        self.assertIn(
+            "get_task_dict(eval_config.tasks, task_manager=task_manager)", script
+        )
 
-    def test_lm_eval_install_uses_a_shared_lock(self) -> None:
+    def test_lm_eval_install_lock_depends_on_install_target(self) -> None:
         cfg = _config("/path/to/Megatron-LM")
         cfg.lm_eval_install = "lm_eval @ git+https://example.com/lm-eval.git@abc123"
         cfg.lm_eval_install_with_python = True
 
         script = _render(cfg, 10, False)
-
+        self.assertIn("SPELLBOOK_PIP=(python -m pip)", script)
+        self.assertIn('"${SPELLBOOK_PIP[@]}" show pip', script)
+        self.assertIn('"${HOME:-}" /users /iopsstor /capstor', script)
+        self.assertIn("if (( SPELLBOOK_SHARED_PYTHON )); then", script)
         self.assertIn('SPELLBOOK_LM_EVAL_LOCK="${LM_HARNESS_CACHE_PATH:-', script)
         self.assertIn("flock -x 9", script)
-        self.assertIn("python -m pip install lm_eval @ git+https://example.com", script)
         self.assertIn('9>"${SPELLBOOK_LM_EVAL_LOCK}"', script)
+        self.assertIn(
+            '"${SPELLBOOK_PIP[@]}" install lm_eval @ '
+            "git+https://example.com/lm-eval.git@abc123"
+            " --no-build-isolation --no-cache-dir",
+            script,
+        )
+
+        cfg.lm_eval_install_with_python = False
+        self.assertIn("SPELLBOOK_PIP=(pip)", _render(cfg, 10, False))
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
 
     def test_missing_dotenv_file_is_allowed(self) -> None:
         script = _render(_config("/path/to/Megatron-LM"), 10, False)
@@ -263,7 +281,9 @@ class MegatronPathTest(unittest.TestCase):
             LMEvalRunConfig(name="first", tasks=["a"]),
             LMEvalRunConfig(name="second", tasks=["b"]),
         ]
-        with patch("evals.megatron_eval._sbatch", side_effect=["1", "2", "3", "4"]) as sbatch:
+        with patch(
+            "evals.megatron_eval._sbatch", side_effect=["1", "2", "3", "4"]
+        ) as sbatch:
             job_ids = submit_evaluations(
                 cfg,
                 [10, 20],
@@ -297,7 +317,9 @@ class MegatronPathTest(unittest.TestCase):
         self.assertIn("/checkpoints/model/iter_0000010/common.pt", script)
         self.assertIn("/checkpoints/model/iter_0000020/common.pt", script)
         self.assertIn('state.get("num_floating_point_operations_so_far")', script)
-        self.assertIn('WANDB_ARGS[1]="${WANDB_ARGS[1]},total_flops=${TOTAL_FLOPS}"', script)
+        self.assertIn(
+            'WANDB_ARGS[1]="${WANDB_ARGS[1]},total_flops=${TOTAL_FLOPS}"', script
+        )
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
 
     def test_load_override_resolves_checkpoint_metadata(self) -> None:
@@ -396,7 +418,9 @@ class MegatronPathTest(unittest.TestCase):
             )
 
             script = script_path.read_text()
-            self.assertIn(f'MARKER="{watch_dir}/latest_checkpointed_iteration.txt"', script)
+            self.assertIn(
+                f'MARKER="{watch_dir}/latest_checkpointed_iteration.txt"', script
+            )
             self.assertIn(
                 str(state_dir / cfg.model_name / ".submitted_steps"),
                 script,
@@ -473,7 +497,9 @@ class MegatronPathTest(unittest.TestCase):
                 return_value=(cfg, "/override", "/state"),
             ),
             patch("evals.watcher._watcher_stop_file") as stop_file,
-            patch("evals.watcher.render_watcher_script", return_value=Path("watcher.sh")) as render,
+            patch(
+                "evals.watcher.render_watcher_script", return_value=Path("watcher.sh")
+            ) as render,
             patch("evals.watcher.subprocess.run", return_value=completed),
         ):
             stop_file.return_value.unlink.return_value = None
@@ -487,7 +513,9 @@ class MegatronPathTest(unittest.TestCase):
             cfg = _config("/path/to/Megatron-LM")
             stop_file = Path(tmp) / ".watcher_stop"
             args = argparse.Namespace(config="config.py", model=None, group=None)
-            completed = subprocess.CompletedProcess(["scancel"], returncode=0, stdout="", stderr="")
+            completed = subprocess.CompletedProcess(
+                ["scancel"], returncode=0, stdout="", stderr=""
+            )
             with (
                 patch("evals.watcher._load_config", return_value=(cfg, None, None)),
                 patch("evals.watcher._watcher_stop_file", return_value=stop_file),
