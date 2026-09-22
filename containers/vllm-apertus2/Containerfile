@@ -39,8 +39,6 @@ ARG VLLM_VERSION_OVERRIDE="0.28.0+apertus2"
 ARG MAX_JOBS="32"
 ARG NVCC_THREADS="4"
 
-COPY Alps-Images/apps/vllm-apertus2/patches/ /tmp/vllm-patches/
-
 RUN source /opt/alps/package-helpers.sh; \
     apt_get update; \
     apt_get install -y --no-install-recommends \
@@ -89,8 +87,8 @@ FROM uv-base AS uccl-builder
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-ARG UCCL_REPO="https://github.com/uccl-project/uccl.git"
-ARG UCCL_REF="e487c782d42ecb22915da0d1add4583f45841042"
+ARG UCCL_REPO="https://github.com/andresnowak/uccl.git"
+ARG UCCL_REF="0c166355310a04b2344ca0c5c0df818b04d26af0"
 ARG UCCL_CUDA_ARCH="9.0"
 ARG UCCL_NVL_PEERS="4"
 ARG UCCL_MAX_JOBS="16"
@@ -114,7 +112,6 @@ RUN set -eux; \
     cd /io; \
     git checkout -q "${UCCL_REF}"; \
     git submodule update --init --recursive; \
-    git apply /tmp/vllm-patches/0002-uccl-runtime-config-overrides.patch; \
     libfabric_prefix="$(pkg-config --variable=prefix libfabric)"; \
     libfabric_libdir="$(pkg-config --variable=libdir libfabric)"; \
     test -n "${libfabric_prefix}"; \

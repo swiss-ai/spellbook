@@ -25,8 +25,7 @@ The communication paths are separate:
 | Component | Pin |
 |---|---|
 | Apertus2 vLLM fork | `andresnowak/vllm@929e3cfbed769a2fe44239fe568befa8700351d4` ([PR #23](https://github.com/swiss-ai/vllm/pull/23)) |
-| upstream UCCL | `e487c782d42ecb22915da0d1add4583f45841042` |
-| UCCL runtime tuning | `patches/0002-uccl-runtime-config-overrides.patch` |
+| UCCL fork | `andresnowak/uccl@0c166355310a04b2344ca0c5c0df818b04d26af0` (`ep-runtime-config-overrides`) |
 | NIXL source/plugin | `v1.3.2` / `de8115ca97d3f8fb63a4988e9b4d4a038b2e0f72` |
 | NIXL Python package | `1.3.2`, matching vLLM's `requirements/kv_connectors.txt` |
 | Run:ai model streamer | `0.15.7` |
@@ -94,6 +93,10 @@ Persistent caches use Ritom. The existing GLM-5.3 weights remain in the Iopstor 
 cache. Per-rank compiler caches use node-local `/tmp`; jobs do not write caches or
 logs under `$HOME`.
 
-The image first needs to pass `tests/import-smoke.sh` on one GPU node. The runtime tuning patch adds five-integer `UCCL_EP_DISPATCH_CONFIG` and `UCCL_EP_COMBINE_CONFIG` overrides without changing UCCL defaults.
+The image first needs to pass `tests/import-smoke.sh` on one GPU node. The pinned
+UCCL branch adds five-integer `UCCL_EP_DISPATCH_CONFIG` and
+`UCCL_EP_COMBINE_CONFIG` overrides without changing UCCL defaults. Switch
+`UCCL_REPO` back to `uccl-project/uccl` only after the corresponding upstream PR
+is merged and the pin includes it.
 
 The complete Chonk topology has been validated on four GH200 nodes: EP8 DeepEP high-throughput prefill, EP8 DeepEP low-latency decode, and NIXL UCCL KV transfer over CXI. Use `tools.inference.vllm_pd_server` for that explicit topology.
