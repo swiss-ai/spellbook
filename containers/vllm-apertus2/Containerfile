@@ -30,8 +30,8 @@ RUN set -eux; \
 
 FROM uv-base AS vllm-builder
 
-ARG VLLM_REPO="https://github.com/swiss-ai/vllm.git"
-ARG VLLM_REF="1650127df516846a78632ecdba7df6af6fa0d587"
+ARG VLLM_REPO="https://github.com/andresnowak/vllm.git"
+ARG VLLM_REF="929e3cfbed769a2fe44239fe568befa8700351d4"
 ARG VLLM_TARGET_DEVICE="cuda"
 ARG VLLM_CUDA_ARCH_LIST="9.0"
 ARG VLLM_TORCH_CUDA_ARCH_LIST="9.0"
@@ -64,7 +64,6 @@ RUN set -eux; \
     cd /tmp/vllm; \
     git checkout -q "${VLLM_REF}"; \
     git submodule update --init --recursive; \
-    git apply /tmp/vllm-patches/0001-preserve-kda-packed-shard-ids.patch; \
     python use_existing_torch.py --prefix || python use_existing_torch.py; \
     build_requirements=requirements/build/cuda.txt; \
     if [[ ! -f "${build_requirements}" ]]; then build_requirements=requirements/build.txt; fi; \

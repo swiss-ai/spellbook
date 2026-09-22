@@ -1,8 +1,10 @@
 # `vllm-apertus2` container image
 
 This Alps CUDA application image builds the tested Apertus2 vLLM 0.28 source commit
-`swiss-ai/vllm@1650127df516846a78632ecdba7df6af6fa0d587` for GH200. It also builds
-upstream UCCL EP and P2P plus the matching NIXL 1.3.2 UCCL plugin.
+`andresnowak/vllm@929e3cfbed769a2fe44239fe568befa8700351d4` from
+[swiss-ai/vllm#23](https://github.com/swiss-ai/vllm/pull/23) for GH200. It also
+builds upstream UCCL EP and P2P plus the matching NIXL 1.3.2 UCCL plugin. Switch
+`VLLM_REPO` back to `swiss-ai/vllm` only after that PR is merged and the pin includes it.
 
 The pinned Apertus2 vLLM source vendors its required Flash Linear Attention
 implementation under `vllm.third_party.flash_linear_attention`. The image verifies
@@ -22,8 +24,7 @@ The communication paths are separate:
 
 | Component | Pin |
 |---|---|
-| Apertus2 vLLM | `1650127df516846a78632ecdba7df6af6fa0d587` |
-| KDA loader fix | `patches/0001-preserve-kda-packed-shard-ids.patch` ([swiss-ai/vllm#23](https://github.com/swiss-ai/vllm/pull/23)) |
+| Apertus2 vLLM fork | `andresnowak/vllm@929e3cfbed769a2fe44239fe568befa8700351d4` ([PR #23](https://github.com/swiss-ai/vllm/pull/23)) |
 | upstream UCCL | `e487c782d42ecb22915da0d1add4583f45841042` |
 | UCCL runtime tuning | `patches/0002-uccl-runtime-config-overrides.patch` |
 | NIXL source/plugin | `v1.3.2` / `de8115ca97d3f8fb63a4988e9b4d4a038b2e0f72` |
