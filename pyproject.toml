@@ -1,7 +1,7 @@
 [project]
 name = "spellbook"
-version = "0.2.0"
-description = "Add your description here"
+version = "0.3.0"
+description = "Declarative Slurm experiment runner for Megatron-LM"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -24,6 +24,7 @@ tools = ["README.md"]
 "tools.inference" = ["*.j2", "README.md"]
 "tools.merge" = ["*.j2", "README.md"]
 "tools.gym_data" = ["*.j2", "README.md"]
+"tools.conversion" = ["README.md"]
 "spellbook.backends" = ["*.j2", "*.yaml"]
 "spellbook.backends.slurm_megatron" = ["*.j2"]
 "spellbook.backends.slurm_nemorl" = ["*.j2"]

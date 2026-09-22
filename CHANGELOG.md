@@ -4,6 +4,8 @@ Notable changes to Spellbook are documented here.
 
 ## Unreleased
 
+## 0.3.0 - 2026-09-22
+
 ### Added
 
 - A declarative experiment-reporting API for selecting WandB runs, caching and
@@ -183,8 +185,9 @@ Notable changes to Spellbook are documented here.
 - Vetnode's upstream GPU evaluator may skip its GPU-health subcheck on GH200
   systems when DCGM reports an empty module ID; the CUDA and NCCL checks still
   run and remain enforced.
-- The vLLM evaluation path is not correctly implemented end to end and is not
-  production-ready.
+- Server-backed vLLM evaluation supports `/v1/completions`, not chat endpoints.
+  Prompt log-likelihood through a disaggregated proxy remains unvalidated; use
+  generation tasks there until its `echo` and prompt-logprobs behavior is checked.
 
 ## 0.2.0 - 2026-08-06
 
