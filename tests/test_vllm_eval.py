@@ -40,6 +40,31 @@ class VLLMEvalTest(unittest.TestCase):
         self.assertNotIn("--ntasks=", launch)
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
 
+    def test_evaluates_an_existing_vllm_server_without_requesting_gpus(self) -> None:
+        script = render(
+            _config(
+                model="chonk",
+                tokenizer="/models/tokenizer",
+                api_base_url="http://172.28.0.1:9000/v1/completions",
+                api_num_concurrent=16,
+                gpus_per_node=0,
+                batch_size=1,
+            )
+        )
+
+        self.assertIn("--model local-completions", script)
+        self.assertIn(
+            "model=chonk,base_url=http://172.28.0.1:9000/v1/completions,"
+            "tokenizer=/models/tokenizer,tokenizer_backend=huggingface,"
+            "tokenized_requests=false,num_concurrent=16,max_retries=3,timeout=300",
+            script,
+        )
+        self.assertIn("--batch_size 1", script)
+        self.assertNotIn("#SBATCH --gres", script)
+        self.assertNotIn("tensor_parallel_size", script)
+        self.assertNotIn("gpu_memory_utilization", script)
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
     def test_renders_tensor_and_data_parallelism(self) -> None:
         script = render(
             _config(
@@ -127,6 +152,18 @@ class VLLMEvalTest(unittest.TestCase):
             render(_config(env_vars={"BAD-NAME": "value"}))
         with self.assertRaisesRegex(ValueError, "conversion_job_id"):
             render(_config(conversion_job_id="not-a-job-id"))
+        with self.assertRaisesRegex(ValueError, "/v1/completions"):
+            render(_config(api_base_url="http://server:8000", tokenizer="tokenizer"))
+        with self.assertRaisesRegex(ValueError, "tokenizer"):
+            render(_config(api_base_url="http://server:8000/v1/completions"))
+        with self.assertRaisesRegex(ValueError, "api_num_concurrent"):
+            render(
+                _config(
+                    api_base_url="http://server:8000/v1/completions",
+                    tokenizer="tokenizer",
+                    api_num_concurrent=0,
+                )
+            )
 
 
 if __name__ == "__main__":

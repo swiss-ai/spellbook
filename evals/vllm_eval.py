@@ -1,4 +1,4 @@
-"""Submit lm-evaluation-harness evaluations using its vLLM backend."""
+"""Submit lm-eval jobs using an in-process or already-running vLLM engine."""
 
 from __future__ import annotations
 
@@ -49,6 +49,14 @@ class VLLMEvalConfig:
     model_args_extra: dict[str, Any] = dataclasses.field(default_factory=dict)
     lm_eval_args_extra: dict[str, Any] = dataclasses.field(default_factory=dict)
 
+    # --- Existing OpenAI-compatible vLLM server ---
+    api_base_url: str = ""
+    api_tokenizer_backend: str = "huggingface"
+    api_tokenized_requests: bool = False
+    api_num_concurrent: int = 1
+    api_max_retries: int = 3
+    api_timeout: int = 300
+
     # --- Slurm ---
     account: str = ""
     partition: str = ""
@@ -91,6 +99,21 @@ def _marked_lm_eval_args(cfg: VLLMEvalConfig) -> dict[str, Any]:
 
 
 def _model_args(cfg: VLLMEvalConfig) -> str:
+    if cfg.api_base_url:
+        return lm_eval_flags.model_args(
+            {
+                "model": cfg.model,
+                "base_url": cfg.api_base_url,
+                "tokenizer": cfg.tokenizer,
+                "tokenizer_backend": cfg.api_tokenizer_backend,
+                "tokenized_requests": str(cfg.api_tokenized_requests).lower(),
+                "num_concurrent": cfg.api_num_concurrent,
+                "max_retries": cfg.api_max_retries,
+                "timeout": cfg.api_timeout,
+                "trust_remote_code": cfg.trust_remote_code,
+                **cfg.model_args_extra,
+            }
+        )
     return lm_eval_flags.model_args(
         {
             "pretrained": cfg.model,
@@ -118,21 +141,35 @@ def _validate(cfg: VLLMEvalConfig) -> None:
         raise ValueError("model must not be empty")
     if not cfg.tasks:
         raise ValueError("tasks must not be empty")
-    for field_name in (
-        "gpus_per_node",
-        "cpus_per_task",
-        "tensor_parallel_size",
-        "data_parallel_size",
-    ):
-        if getattr(cfg, field_name) <= 0:
-            raise ValueError(f"{field_name} must be greater than zero")
-    required_gpus = cfg.tensor_parallel_size * cfg.data_parallel_size
-    if required_gpus > cfg.gpus_per_node:
-        raise ValueError("tensor_parallel_size * data_parallel_size exceeds gpus_per_node")
-    if not 0 < cfg.gpu_memory_utilization <= 1:
-        raise ValueError("gpu_memory_utilization must be in (0, 1]")
-    if cfg.max_model_len is not None and cfg.max_model_len <= 0:
-        raise ValueError("max_model_len must be greater than zero")
+    if cfg.cpus_per_task <= 0:
+        raise ValueError("cpus_per_task must be greater than zero")
+    if cfg.api_base_url:
+        if cfg.api_tokenizer_backend not in {"huggingface", "remote"}:
+            raise ValueError("api_tokenizer_backend must be 'huggingface' or 'remote'")
+        if cfg.api_tokenizer_backend == "huggingface" and not cfg.tokenizer:
+            raise ValueError("tokenizer must not be empty with the huggingface backend")
+        if not cfg.api_base_url.startswith(("http://", "https://")):
+            raise ValueError("api_base_url must use http:// or https://")
+        if not cfg.api_base_url.rstrip("/").endswith("/v1/completions"):
+            raise ValueError("api_base_url must end with /v1/completions")
+        for field_name in ("api_num_concurrent", "api_max_retries", "api_timeout"):
+            if getattr(cfg, field_name) <= 0:
+                raise ValueError(f"{field_name} must be greater than zero")
+    else:
+        for field_name in (
+            "gpus_per_node",
+            "tensor_parallel_size",
+            "data_parallel_size",
+        ):
+            if getattr(cfg, field_name) <= 0:
+                raise ValueError(f"{field_name} must be greater than zero")
+        required_gpus = cfg.tensor_parallel_size * cfg.data_parallel_size
+        if required_gpus > cfg.gpus_per_node:
+            raise ValueError("tensor_parallel_size * data_parallel_size exceeds gpus_per_node")
+        if not 0 < cfg.gpu_memory_utilization <= 1:
+            raise ValueError("gpu_memory_utilization must be in (0, 1]")
+        if cfg.max_model_len is not None and cfg.max_model_len <= 0:
+            raise ValueError("max_model_len must be greater than zero")
     invalid_env_names = [name for name in cfg.env_vars if not _ENV_NAME.fullmatch(name)]
     if invalid_env_names:
         raise ValueError(f"invalid environment variable names: {invalid_env_names}")
@@ -141,15 +178,18 @@ def _validate(cfg: VLLMEvalConfig) -> None:
 
 
 def render(cfg: VLLMEvalConfig) -> str:
-    """Render a single-node Slurm job using lm-eval's standard vLLM backend."""
+    """Render lm-eval against an in-process or already-running vLLM server."""
     _validate(cfg)
     output_root = Path(cfg.output_dir).expanduser() if cfg.output_dir else Path.cwd() / "evals"
     output_dir = (output_root / cfg.model_name).resolve()
     log_dir = Path(cfg.log_dir).expanduser().resolve()
+    marked_args = _marked_lm_eval_args(cfg)
+    if cfg.api_base_url and marked_args["batch_size"] == "auto":
+        marked_args["batch_size"] = 1
     lm_eval_args = {
-        "model": "vllm",
+        "model": "local-completions" if cfg.api_base_url else "vllm",
         "model_args": _model_args(cfg),
-        **_marked_lm_eval_args(cfg),
+        **marked_args,
         "output_path": str(output_dir),
         **cfg.lm_eval_args_extra,
     }
@@ -166,6 +206,7 @@ def render(cfg: VLLMEvalConfig) -> str:
             "output_dir": str(output_dir),
             "log_dir": str(log_dir),
             "lm_eval_args_lines": lm_eval_flags.to_shell_lines(lm_eval_args),
+            "api_mode": bool(cfg.api_base_url),
             "wandb_args_line": next(
                 iter(
                     lm_eval_flags.to_shell_lines(

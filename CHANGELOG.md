@@ -38,7 +38,8 @@ Notable changes to Spellbook are documented here.
   transport, a NIXL UCCL plugin for disaggregated KV transfer, Run:ai model
   streaming, cache-safe EDF settings, and import and linkage smoke tests.
 - Native multi-node vLLM launchers for ordinary serving and explicit disaggregated
-  high-throughput-prefill/low-latency-decode serving, plus shared client support.
+  high-throughput-prefill/low-latency-decode serving, shared client support, and
+  server-backed lm-eval evaluation.
 - A worked two-node Apertus KDA 5B GRPO example using NeMo Gym, including data
   preparation, squashfs-mounted Gym environments, and a clean run-local
   checkpoint directory.

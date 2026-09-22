@@ -19,67 +19,92 @@ owns the experiments and checkpoint paths, rather than in Spellbook itself.
 
 ## vLLM
 
-> **Status:** The vLLM evaluation path is not correctly implemented end to end
-> and is not production-ready. Existing configuration and rendering support
-> should not be interpreted as a working or validated evaluator.
+Spellbook supports two lm-eval modes:
+
+- **Server-backed (recommended for multi-node, EP, PP, and PD):** launch vLLM
+  separately with `tools.inference.vllm_server` or
+  `tools.inference.vllm_pd_server`, then evaluate its OpenAI-compatible
+  completions endpoint.
+- **In-process:** let lm-eval create a single-node vLLM engine directly. This is
+  useful for small TP/DP evaluations but does not own a production multi-node
+  deployment.
+
+The evaluator does not need to know the server's TP, PP, DP, EP, or PD topology.
+For an ordinary server, use its API-head address. For PD, use the proxy address:
 
 ```python
-from evals.hf_conversion import HFConversionConfig, submit as submit_conversion
-from evals.vllm_eval import VLLMEvalConfig, submit as submit_eval
+from evals.vllm_eval import VLLMEvalConfig, submit
 
-hf_model = "/path/to/hf-checkpoint"
-conversion_job = submit_conversion(
-    HFConversionConfig(
-        hfconverter_root="https://github.com/swiss-ai/hfconverter.git",
-        hfconverter_commit="apertus2/main",
-        checkpoint_dir="/path/to/torch_dist/iter_0003000",
-        output_dir=hf_model,
-        tokenizer_dir="/path/to/tokenizer",
-        account="infra01",
-        partition="normal",
+submit(
+    VLLMEvalConfig(
+        model_name="chonk-eval",
+        model="chonk",  # The server's --served-model-name.
+        tokenizer="/path/to/tokenizer",
+        api_base_url="http://172.28.0.10:9000/v1/completions",
+        api_num_concurrent=16,
+        tasks=["hellaswag", "arc_easy"],
+        batch_size=1,
+        output_dir="/path/to/results",
+        account="csstaff",
+        partition="preemptable",
+        cpus_per_task=16,
+        gpus_per_node=0,
+        container_edf="/path/to/lm-eval.toml",
+        srun_extra_args="--network=disable_rdzv_get",
     )
 )
+```
 
-submit_eval(
+The server must remain alive for the full evaluation. Server-backed jobs request
+no GPUs. Against an ordinary vLLM server, `local-completions` supports generation
+and log-likelihood tasks through `/v1/completions` logprobs. Chat-only endpoints are
+not supported because they cannot score log-likelihood requests. Treat PD proxies
+as generation-only until their `echo` and prompt-logprobs behavior is separately
+validated. `api_num_concurrent` controls request parallelism; keep lm-eval's
+top-level `batch_size=1` unless the endpoint is known to support heterogeneous
+batched requests.
+
+Server-backed evaluation requires the tokenizer matching the server model. By
+default, lm-eval loads it with the Hugging Face backend and sends string prompts
+(`api_tokenizer_backend="huggingface"`, `api_tokenized_requests=False`). This
+works when a PD proxy forwards completions but not `/tokenize` or
+`/tokenizer_info`. Select the remote tokenizer backend only when those vLLM
+endpoints are reachable through the configured URL; in that case set
+`api_tokenizer_backend="remote"` and omit `tokenizer`.
+
+For a small single-node evaluation without a separately managed server, omit
+`api_base_url`:
+
+```python
+from evals.vllm_eval import VLLMEvalConfig, submit
+
+submit(
     VLLMEvalConfig(
-        model_name="apertus-8b-step-3000",
-        model=hf_model,
+        model_name="apertus-local",
+        model="/path/to/hf-format-model",
         tokenizer="/path/to/tokenizer",
         tasks=["hellaswag", "arc_easy"],
-        batch_size="auto",
-        max_model_len=8192,
         tensor_parallel_size=1,
         data_parallel_size=4,
-        output_dir="/path/to/results",
-        account="infra01",
-        partition="normal",
+        account="csstaff",
+        partition="preemptable",
         gpus_per_node=4,
-        container_edf="apertus2-vllm",
-        container_mounts="${SCRATCH}:${SCRATCH},${HOME}:${HOME}",
-        srun_extra_args="--network=disable_rdzv_get",
-        conversion_job_id=conversion_job or "",
+        container_edf="/path/to/vllm.toml",
     )
 )
 ```
 
 Git hfconverter sources use locked caches below `${SCRATCH}/tmp` (or `~/.cache/spellbook/tmp`), completed conversions are reused, and `recreate=True` explicitly replaces partial or completed outputs.
 
-The vLLM job starts one `lm_eval` process with `python -m lm_eval run --model
-vllm`; lm-eval and vLLM create their own local workers. The adapter's documented
-`tensor_parallel_size` and `data_parallel_size` model arguments are supported.
-Their product may not exceed `gpus_per_node`. Pipeline and expert parallelism
-are not exposed because the lm-eval adapter does not officially support them.
+In both modes, one Slurm task starts one lm-eval process. The launcher does not
+wrap lm-eval in `torchrun` or start one evaluator per GPU. Use
+`model_args_extra` for additional backend arguments and `lm_eval_args_extra` for
+additional top-level lm-eval options. Common options include `cache_requests`,
+`metadata`, `log_samples`, `write_out`, `wandb_project`, `hf_home`,
+`lm_eval_install`, `install_commands`, and `env_vars`.
 
-This launcher intentionally supports one Slurm node. It does not wrap lm-eval
-in torchrun or start one independent evaluator per GPU. Use `model_args_extra`
-for additional vLLM engine arguments and `lm_eval_args_extra` for additional
-lm-eval options. Common Megatron-evaluator features are also available:
-`cache_requests`, `metadata`, `log_samples`, `write_out`, `wandb_project`,
-`hf_home`, `lm_eval_install`, `install_commands`, and `env_vars`.
-
-The user supplies prebuilt converter and vLLM images; Spellbook only submits
-conversion and evaluation jobs, writing results below
-`<output_dir>/<model_name>`.
+The user supplies the conversion, vLLM, and evaluation images. Spellbook submits
+evaluation jobs and writes results below `<output_dir>/<model_name>`.
 
 ### Verified environment
 
