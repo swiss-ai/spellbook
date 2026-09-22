@@ -6,7 +6,6 @@ Slurm evaluation runners for Megatron-LM and vLLM.
 
 | File | Purpose |
 |------|---------|
-| `hf_conversion.py` | hfconverter Stage-2 submission helper |
 | `megatron_eval.py` | Megatron dataclass and submission functions |
 | `megatron_eval.sh.j2` | Jinja2 template for the Megatron eval sbatch script |
 | `vllm_eval.py` | vLLM dataclass, renderer, and submission function |
@@ -16,6 +15,26 @@ Slurm evaluation runners for Megatron-LM and vLLM.
 
 Per-model configs are deployment-specific and should live in the repository that
 owns the experiments and checkpoint paths, rather than in Spellbook itself.
+
+## Megatron-Bridge conversion
+
+Use the executable example launcher for new Megatron-to-Hugging-Face exports:
+
+```bash
+# Edit tools/conversion/examples/megatron_bridge.py first.
+uv run python -m tools.conversion.examples.megatron_bridge dry-run
+uv run python -m tools.conversion.examples.megatron_bridge submit
+```
+
+`submit` invokes Megatron-Bridge's native NeMo Run pipeline, which generates and
+submits the distributed sbatch job. The launcher automatically mounts the
+selected Bridge checkout and an optional Megatron-LM checkout, and verifies their
+configured commits. See [`tools/conversion/README.md`](../tools/conversion/README.md)
+for the config and commands.
+
+The checkpoint must already contain a valid Bridge `run_config.yaml`. Legacy
+checkpoint preparation is intentionally out of scope. Pass the exported HF-format
+directory to a vLLM serving launcher, then submit evaluation jobs separately.
 
 ## vLLM
 
@@ -28,6 +47,35 @@ Spellbook supports two lm-eval modes:
 - **In-process:** let lm-eval create a single-node vLLM engine directly. This is
   useful for small TP/DP evaluations but does not own a production multi-node
   deployment.
+
+The evaluator does not create or own the server. Start it first with the serving
+launcher and keep the job running while one or more evaluations use it:
+
+```python
+from tools.inference.vllm_server import VLLMServerConfig, submit as submit_server
+
+server_job_id = submit_server(
+    VLLMServerConfig(
+        name="chonk",
+        model="/path/to/chonk-hf",
+        served_model_name="chonk",
+        nodes=4,
+        gpus_per_node=4,
+        enable_expert_parallel=True,
+        all2all_backend="deepep_high_throughput",
+        account="csstaff",
+        partition="preemptable",
+        container_edf="/path/to/vllm-apertus2.toml",
+        env_vars={"UCCL_EP_TRANSPORT": "cxi"},
+    )
+)
+```
+
+For disaggregated serving, use `VLLMPDServerConfig` and its `submit` function
+instead. The server log prints the resolved API or proxy URL. Copy that URL into
+the evaluation config below. Keeping submission as two explicit steps lets one
+server handle several task groups or independent evaluation jobs; cancel the
+server job when they finish.
 
 The evaluator does not need to know the server's TP, PP, DP, EP, or PD topology.
 For an ordinary server, use its API-head address. For PD, use the proxy address:
@@ -94,8 +142,6 @@ submit(
 )
 ```
 
-Git hfconverter sources use locked caches below `${SCRATCH}/tmp` (or `~/.cache/spellbook/tmp`), completed conversions are reused, and `recreate=True` explicitly replaces partial or completed outputs.
-
 In both modes, one Slurm task starts one lm-eval process. The launcher does not
 wrap lm-eval in `torchrun` or start one evaluator per GPU. Use
 `model_args_extra` for additional backend arguments and `lm_eval_args_extra` for
@@ -105,19 +151,6 @@ additional top-level lm-eval options. Common options include `cache_requests`,
 
 The user supplies the conversion, vLLM, and evaluation images. Spellbook submits
 evaluation jobs and writes results below `<output_dir>/<model_name>`.
-
-### Verified environment
-
-The hfconverter image and 3B Stage-2 conversion were verified on **2026-08-20** with:
-
-- hfconverter: `2e1e94fd60164ed83b7f1f0251eb30c0ca4c67a5` (`apertus2/main`)
-- Megatron-LM-MoE fork used for the image smoke test: `60a7102cfddaa1f366fef9ac944b9d962db9553a`
-- image: `/iopsstor/scratch/cscs/anowak/images/apertus2-hf.sqsh`
-- test checkpoint: `chonk-3b-parameter-collapse-gbs512-row-fan-in-split-fc1-polar-express/iter_0001907`
-- result: conversion and `VERIFY_LOAD=1` completed successfully
-
-Treat later hfconverter or Megatron changes as unverified until the conversion
-smoke test is repeated.
 
 ## Megatron-LM
 

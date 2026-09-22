@@ -52,15 +52,24 @@ assert Apertus2KDAForCausalLM is not None
 assert GlmMoeDsaForCausalLM is not None
 assert FusedRMSNormGated is not None
 
-import nixl
-
-config = nixl.nixl_agent_config(backends=["UCCL"])
-agent = nixl.nixl_agent("apertus2-smoke", config)
-print("NIXL plugins", agent.get_plugin_list())
-assert "UCCL" in agent.get_plugin_list()
 PY
 
 [[ "${UCCL_EP_TRANSPORT:-}" == cxi ]]
 [[ "${UCCL_P2P_TRANSPORT:-}" == cxi ]]
 [[ "${UCCL_CXI_THREADING:-}" == safe ]]
 [[ -f "${NIXL_PLUGIN_DIR:?}/libplugin_UCCL.so" ]]
+
+# UCCL's passive accept threads are process-lifetime. End this isolated probe
+# directly after its assertions so Python teardown cannot block the smoke test.
+python3 - <<'PY'
+import os
+
+import nixl
+
+config = nixl.nixl_agent_config(backends=["UCCL"])
+agent = nixl.nixl_agent("apertus2-smoke", config)
+plugins = agent.get_plugin_list()
+print("NIXL plugins", plugins, flush=True)
+assert "UCCL" in plugins
+os._exit(0)
+PY

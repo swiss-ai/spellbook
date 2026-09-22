@@ -40,6 +40,8 @@ Notable changes to Spellbook are documented here.
 - Native multi-node vLLM launchers for ordinary serving and explicit disaggregated
   high-throughput-prefill/low-latency-decode serving, shared client support, and
   server-backed lm-eval evaluation.
+- A model-agnostic Megatron-Bridge `AutoBridge` export launcher for distributed
+  Megatron-to-Hugging-Face checkpoint conversion.
 - A worked two-node Apertus KDA 5B GRPO example using NeMo Gym, including data
   preparation, squashfs-mounted Gym environments, and a clean run-local
   checkpoint directory.
@@ -58,12 +60,9 @@ Notable changes to Spellbook are documented here.
   configs, isolate grouped state, logs, and scripts, serialize group chains when
   requested, use caller-owned runtime and state directories, and run from the
   caller's project directory.
-- A single-node Slurm launcher for lm-evaluation-harness's standard vLLM
-  backend, with tensor and data parallel options, common lm-eval settings,
-  install hooks, caching, and WandB integration.
-- A fixed-interface hfconverter Stage-2 submission helper with local or Git URL
-  sources, locked refreshed checkout caches, optional commit pinning,
-  completed-output reuse, explicit recreation, and vLLM job dependencies.
+- An lm-evaluation-harness vLLM launcher supporting both a single-node local
+  engine and GPU-free evaluation against separately managed distributed vLLM
+  servers, with common lm-eval settings, caching, and WandB integration.
 - Persistent, configuration-keyed Triton and TorchInductor caches with
   node-local staging, distributed cache merging, and warmup-only runs.
 - `qos` on the Megatron and NeMo-RL Slurm backends, the evaluation configs, and the
