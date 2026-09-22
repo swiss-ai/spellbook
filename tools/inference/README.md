@@ -1,8 +1,10 @@
-# Megatron inference
+# Inference
 
-Slurm launcher for Megatron-LM's dynamic text-generation HTTP server. Model- and checkpoint-specific configs should live in the repository that owns those artifacts. The launcher is backend-specific while `tools.inference.client` targets the common HTTP API, leaving room for a future vLLM launcher without changing the interactive client.
+Spellbook provides separate Slurm launchers for Megatron dynamic inference, ordinary vLLM serving, and disaggregated vLLM prefill/decode serving. Model- and checkpoint-specific configurations should live in the repository that owns those artifacts. All launchers use the backend-neutral `tools.inference.client`.
 
-The launcher uses one Slurm task per GPU, not `torchrun`. Every task starts one Megatron process using `SLURM_PROCID`, `SLURM_LOCALID`, and `SLURM_NTASKS`, with CPU and memory bound to the matching NUMA node. Quart and Hypercorn are installed once per node inside the containerized `srun` step before the server starts.
+## Megatron
+
+The Megatron launcher uses one Slurm task per GPU, not `torchrun`. Every task starts one Megatron process using `SLURM_PROCID`, `SLURM_LOCALID`, and `SLURM_NTASKS`, with CPU and memory bound to the matching NUMA node. Quart and Hypercorn are installed once per node inside the containerized `srun` step before the server starts.
 
 A complete placeholder configuration is available at [`examples/megatron_server.py`](examples/megatron_server.py). Replace its paths and Slurm settings, then inspect or submit it with:
 
@@ -49,10 +51,34 @@ Use `render(cfg)` to inspect the sbatch script without submitting it. `nodes * g
 
 `megatron_args` accepts new Megatron options without changes to Spellbook: keys use the same `snake_case` to `--kebab-case` conversion as experiment fields, `True` emits a bare flag, and `None`/`False` omit it.
 
+## vLLM
+
+`VLLMServerConfig` launches one native vLLM parent per node. vLLM then creates its local GPU workers; the launcher does not use `torchrun`, Ray, or one Slurm task per GPU. The first node hosts the API and data-parallel coordinator. Other nodes use `--headless` and advertise their data-parallel rank range. Coordinator URLs use resolved compute-node IPv4 addresses.
+
+```bash
+python -m tools.inference.examples.vllm_server render
+python -m tools.inference.examples.vllm_server submit
+```
+
+Pass additional engine flags through `vllm_args`. JSON-valued flags must be serialized strings, for example `model_loader_extra_config='{"distributed":true,"concurrency":16}'`.
+
+`VLLMPDServerConfig` is deliberately separate. It allocates distinct prefill and decode node groups, launches native vLLM data parallelism in each group, and starts a configurable vLLM-compatible PD proxy. The validated Alps topology uses DeepEP high-throughput for prefill, DeepEP low-latency for decode, and `NixlConnector` with the UCCL plugin for KV transfer.
+
+```bash
+export VLLM_PD_PROXY_SCRIPT=/path/to/vllm/examples/disaggregated/disaggregated_serving/disagg_proxy_multiturn.py
+python -m tools.inference.examples.vllm_pd_server render
+python -m tools.inference.examples.vllm_pd_server submit
+```
+
+The PD launcher sets `UCCL_EP_TRANSPORT=cxi`, `UCCL_P2P_TRANSPORT=cxi`, and `VLLM_SSM_CONV_STATE_LAYOUT=DS`. The Apertus2 image supports `UCCL_EP_DISPATCH_CONFIG` and `UCCL_EP_COMBINE_CONFIG`; the example includes the EP8 values validated on four-GPU Alps nodes. Do not reuse those tuning values for a different EP size without benchmarking.
+
+## Client
+
 The job log prints its compute hostname. A small standard-library client is included, so no Python dependencies or hand-written curl payloads are needed:
 
 ```bash
 export INFERENCE_SERVER_URL="http://${COMPUTE_HOST}:5000"
+export INFERENCE_MODEL="model"  # Required by vLLM; optional for Megatron.
 python -m tools.inference.client health
 python -m tools.inference.client interactive --max-tokens 128
 

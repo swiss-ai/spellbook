@@ -45,6 +45,7 @@ def interactive(
     system: str | None,
     max_tokens: int,
     temperature: float,
+    model: str | None,
 ) -> None:
     """Run a persistent prompt loop; chat mode preserves conversation history."""
     messages = []
@@ -74,6 +75,7 @@ def interactive(
                     "messages": messages,
                     "max_tokens": max_tokens,
                     "temperature": temperature,
+                    **({"model": model} if model else {}),
                 },
             )
             answer = _text(result)
@@ -86,6 +88,7 @@ def interactive(
                     "prompt": prompt,
                     "max_tokens": max_tokens,
                     "temperature": temperature,
+                    **({"model": model} if model else {}),
                 },
             )
             answer = _text(result)
@@ -97,6 +100,7 @@ def main() -> None:
     parser.add_argument(
         "--url", default=os.environ.get("INFERENCE_SERVER_URL", "http://localhost:5000")
     )
+    parser.add_argument("--model", default=os.environ.get("INFERENCE_MODEL"))
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("health")
 
@@ -127,10 +131,19 @@ def main() -> None:
             system=args.system,
             max_tokens=args.max_tokens,
             temperature=args.temperature,
+            model=args.model,
         )
         return
     if args.command == "health":
-        result = request(args.url, "/v1/health")
+        errors = []
+        for route in ("/v1/health", "/health", "/healthcheck"):
+            try:
+                result = request(args.url, route)
+                break
+            except SystemExit as error:
+                errors.append(str(error))
+        else:
+            raise SystemExit("; ".join(errors))
     elif args.command == "completion":
         payload = {
             "prompt": args.prompt,
@@ -139,6 +152,8 @@ def main() -> None:
         }
         if args.top_p is not None:
             payload["top_p"] = args.top_p
+        if args.model:
+            payload["model"] = args.model
         result = request(args.url, "/v1/completions", payload)
     else:
         messages = []
@@ -152,6 +167,8 @@ def main() -> None:
         }
         if args.top_p is not None:
             payload["top_p"] = args.top_p
+        if args.model:
+            payload["model"] = args.model
         result = request(args.url, "/v1/chat/completions", payload)
 
     print(json.dumps(result, indent=2, ensure_ascii=False))

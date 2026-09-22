@@ -2,7 +2,7 @@ import io
 import unittest
 from unittest.mock import patch
 
-from tools.inference.client import _text, interactive, request
+from tools.inference.client import _text, interactive, main, request
 
 
 class _Response:
@@ -31,6 +31,35 @@ class InferenceClientTest(unittest.TestCase):
         self.assertEqual(sent.method, "POST")
         self.assertIn(b'"prompt": "hello"', sent.data)
 
+    def test_health_falls_back_to_vllm_and_proxy_routes(self) -> None:
+        with (
+            patch("sys.argv", ["client", "health"]),
+            patch(
+                "tools.inference.client.request",
+                side_effect=[SystemExit("404"), SystemExit("404"), {"ok": True}],
+            ) as send,
+            patch("sys.stdout", new_callable=io.StringIO),
+        ):
+            main()
+
+        self.assertEqual(
+            [call.args[1] for call in send.call_args_list],
+            ["/v1/health", "/health", "/healthcheck"],
+        )
+
+    def test_completion_adds_configured_model(self) -> None:
+        with (
+            patch(
+                "sys.argv",
+                ["client", "--model", "chonk", "completion", "hello"],
+            ),
+            patch("tools.inference.client.request", return_value={}) as send,
+            patch("sys.stdout", new_callable=io.StringIO),
+        ):
+            main()
+
+        self.assertEqual(send.call_args.args[2]["model"], "chonk")
+
     def test_extracts_completion_and_chat_text(self) -> None:
         self.assertEqual(_text({"choices": [{"text": "done"}]}), "done")
         self.assertEqual(_text({"choices": [{"message": {"content": "answer"}}]}), "answer")
@@ -51,6 +80,7 @@ class InferenceClientTest(unittest.TestCase):
                 system=None,
                 max_tokens=8,
                 temperature=0,
+                model=None,
             )
 
         self.assertEqual(send.call_count, 2)

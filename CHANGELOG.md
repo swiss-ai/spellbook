@@ -34,6 +34,11 @@ Notable changes to Spellbook are documented here.
   squashfs environments on the Slurm host.
 - An Alps extended-image definition for NeMo-RL with pinned kernels and runtime
   dependencies plus import and Ray smoke tests.
+- A pinned Apertus2 vLLM 0.28 GH200 image with UCCL expert-parallel and P2P
+  transport, a NIXL UCCL plugin for disaggregated KV transfer, Run:ai model
+  streaming, cache-safe EDF settings, and import and linkage smoke tests.
+- Native multi-node vLLM launchers for ordinary serving and explicit disaggregated
+  high-throughput-prefill/low-latency-decode serving, plus shared client support.
 - A worked two-node Apertus KDA 5B GRPO example using NeMo Gym, including data
   preparation, squashfs-mounted Gym environments, and a clean run-local
   checkpoint directory.

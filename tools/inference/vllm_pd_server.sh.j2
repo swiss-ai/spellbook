@@ -1,0 +1,155 @@
+#!/bin/bash
+#SBATCH --nodes={{ total_nodes }}
+#SBATCH --account={{ account }}
+#SBATCH --partition={{ partition }}
+#SBATCH --ntasks={{ total_nodes }}
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpus-per-node={{ gpus_per_node }}
+#SBATCH --cpus-per-task={{ cpus_per_task }}
+#SBATCH --time={{ run_time }}
+#SBATCH --job-name=serve_pd_{{ name }}
+#SBATCH --output={{ log_dir }}/{{ name }}/{{ name }}-%j.out
+#SBATCH --error={{ log_dir }}/{{ name }}/{{ name }}-%j.err
+#SBATCH --exclusive
+{%- if reservation %}
+#SBATCH --reservation={{ reservation }}
+{%- endif %}
+{%- if qos %}
+#SBATCH --qos={{ qos }}
+{%- endif %}
+{%- if exclude %}
+#SBATCH --exclude={{ exclude }}
+{%- endif %}
+
+set -euo pipefail
+mapfile -t nodes < <(scontrol show hostnames "$SLURM_JOB_NODELIST")
+prefill_ip="$(getent ahostsv4 "${nodes[0]}" | awk 'NR == 1 {print $1}')"
+decode_ip="$(getent ahostsv4 "${nodes[{{ prefill_nodes }}]}" | awk 'NR == 1 {print $1}')"
+[[ -n "$prefill_ip" && -n "$decode_ip" ]] || { echo "Could not resolve PD heads to IPv4" >&2; exit 1; }
+echo "PD nodes: ${nodes[*]}"
+echo "PD addresses: prefill=${prefill_ip} decode=${decode_ip} proxy=http://${prefill_ip}:{{ proxy_port }}"
+
+pids=()
+cleanup() {
+  for pid in "${pids[@]:-}"; do kill "$pid" 2>/dev/null || true; done
+  wait || true
+}
+trap cleanup EXIT
+
+read -r -d '' role_script <<'VLLM_ROLE' || true
+set -euo pipefail
+role="$1"
+dp_head="$2"
+rpc_port="$3"
+api_port="$4"
+start_rank="$5"
+backend="$6"
+kv_role="$7"
+
+export LOCAL_WORLD_SIZE={{ gpus_per_node }}
+export CUDA_VISIBLE_DEVICES="$(seq -s, 0 $(({{ gpus_per_node }} - 1)))"
+export VLLM_NIXL_SIDE_CHANNEL_HOST="$(getent ahostsv4 "$(hostname)" | awk 'NR == 1 {print $1}')"
+[[ -n "$VLLM_NIXL_SIDE_CHANNEL_HOST" ]] || { echo "Could not resolve local IPv4" >&2; exit 1; }
+export VLLM_NIXL_SIDE_CHANNEL_PORT={{ nixl_side_channel_port }}
+export UCCL_EP_TRANSPORT=cxi
+export UCCL_P2P_TRANSPORT=cxi
+export UCCL_CXI_THREADING=safe
+export VLLM_SSM_CONV_STATE_LAYOUT=DS
+{% if uccl_dispatch_config %}
+export UCCL_EP_DISPATCH_CONFIG="{{ uccl_dispatch_config }}"
+{%- endif %}
+{% if uccl_combine_config %}
+export UCCL_EP_COMBINE_CONFIG="{{ uccl_combine_config }}"
+{%- endif %}
+{% for key, value in env_vars.items() %}
+export {{ key }}="{{ value }}"
+{%- endfor %}
+export XDG_CACHE_HOME="/tmp/spellbook-vllm-pd-${SLURM_JOB_ID}-${role}"
+export VLLM_CACHE_ROOT="${XDG_CACHE_HOME}/vllm"
+export FLASHINFER_WORKSPACE_BASE="${XDG_CACHE_HOME}/flashinfer"
+export TORCH_HOME="${XDG_CACHE_HOME}/torch"
+export TRITON_CACHE_DIR="${XDG_CACHE_HOME}/triton"
+export TORCHINDUCTOR_CACHE_DIR="${XDG_CACHE_HOME}/inductor"
+mkdir -p "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
+
+kv_config='{"kv_connector":"NixlConnector","kv_role":"'"$kv_role"'","kv_load_failure_policy":"fail","kv_connector_extra_config":{"backends":["UCCL"]}}'
+args=(
+  {{ common_args | join(" \
+  ") }}
+  "--data-parallel-address" "$dp_head"
+  "--data-parallel-rpc-port" "$rpc_port"
+  "--all2all-backend" "$backend"
+  "--kv-transfer-config" "$kv_config"
+)
+if [[ "$start_rank" == 0 ]]; then
+  args+=("--api-server-count" "1" "--port" "$api_port")
+else
+  args+=("--data-parallel-start-rank" "$start_rank" "--headless")
+fi
+echo "Role ${role}: host=$(hostname) side_channel=${VLLM_NIXL_SIDE_CHANNEL_HOST} backend=${backend} start_rank=${start_rank}"
+exec vllm serve "${args[@]}"
+VLLM_ROLE
+
+launch_role() {
+  local node="$1" log="$2"
+  shift 2
+  srun --overlap --nodes=1 --ntasks=1 --nodelist="$node" \
+    --gpus-per-node={{ gpus_per_node }} --cpus-per-task={{ cpus_per_task }} \
+    --mpi=pmix \
+{%- if container_edf %}
+    --environment="{{ container_edf }}" \
+{%- endif %}
+{%- if container_mounts %}
+    --container-mounts="{{ container_mounts }}" \
+{%- endif %}
+{%- if srun_extra_args %}
+    {{ srun_extra_args }} \
+{%- endif %}
+    -u bash -c "$role_script" -- "$@" >"$log" 2>&1 &
+  pids+=("$!")
+}
+
+for ((i = 0; i < {{ prefill_nodes }}; i++)); do
+  start_rank=$((i * {{ data_parallel_size_local }}))
+  launch_role "${nodes[$i]}" "{{ log_dir }}/{{ name }}/prefill-${i}-${SLURM_JOB_ID}.log" \
+    "prefill-${i}" "$prefill_ip" {{ prefill_rpc_port }} {{ prefill_port }} "$start_rank" \
+    "{{ prefill_backend }}" kv_producer
+done
+for ((i = 0; i < {{ decode_nodes }}; i++)); do
+  node_index=$(({{ prefill_nodes }} + i))
+  start_rank=$((i * {{ data_parallel_size_local }}))
+  launch_role "${nodes[$node_index]}" "{{ log_dir }}/{{ name }}/decode-${i}-${SLURM_JOB_ID}.log" \
+    "decode-${i}" "$decode_ip" {{ decode_rpc_port }} {{ decode_port }} "$start_rank" \
+    "{{ decode_backend }}" kv_consumer
+done
+
+wait_for_health() {
+  local url="$1" name="$2"
+  timeout {{ health_timeout }} bash -c "until curl -fsS --max-time 3 '$url' >/dev/null; do sleep 5; done"
+  echo "Healthy: $name $url"
+}
+wait_for_health "http://${prefill_ip}:{{ prefill_port }}/health" prefill
+wait_for_health "http://${decode_ip}:{{ decode_port }}/health" decode
+
+srun --overlap --nodes=1 --ntasks=1 --nodelist="${nodes[0]}" --cpus-per-task=4 \
+  --mpi=pmix \
+{%- if container_edf %}
+  --environment="{{ container_edf }}" \
+{%- endif %}
+{%- if container_mounts %}
+  --container-mounts="{{ container_mounts }}" \
+{%- endif %}
+{%- if srun_extra_args %}
+  {{ srun_extra_args }} \
+{%- endif %}
+  -u python3 "{{ proxy_script }}" --host 0.0.0.0 --port {{ proxy_port }} \
+  --prefiller-hosts "$prefill_ip" --prefiller-ports {{ prefill_port }} \
+  --decoder-hosts "$decode_ip" --decoder-ports {{ decode_port }} \
+  >"{{ log_dir }}/{{ name }}/proxy-${SLURM_JOB_ID}.log" 2>&1 &
+pids+=("$!")
+wait_for_health "http://${prefill_ip}:{{ proxy_port }}{{ proxy_health_path }}" proxy
+printf 'Server URL: http://%s:{{ proxy_port }}\n' "$prefill_ip"
+
+wait -n "${pids[@]}"
+echo "A vLLM PD role exited unexpectedly" >&2
+exit 1

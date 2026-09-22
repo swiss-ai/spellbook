@@ -1,0 +1,80 @@
+#!/bin/bash
+#SBATCH --nodes={{ nodes }}
+#SBATCH --account={{ account }}
+#SBATCH --partition={{ partition }}
+#SBATCH --ntasks-per-node=1
+#SBATCH --gpus-per-node={{ gpus_per_node }}
+#SBATCH --cpus-per-task={{ cpus_per_task }}
+#SBATCH --time={{ run_time }}
+#SBATCH --job-name=serve_{{ name }}
+#SBATCH --output={{ log_dir }}/{{ name }}/{{ name }}-%j.out
+#SBATCH --error={{ log_dir }}/{{ name }}/{{ name }}-%j.err
+#SBATCH --exclusive
+{%- if memory %}
+#SBATCH --mem={{ memory }}
+{%- endif %}
+{%- if reservation %}
+#SBATCH --reservation={{ reservation }}
+{%- endif %}
+{%- if qos %}
+#SBATCH --qos={{ qos }}
+{%- endif %}
+{%- if exclude %}
+#SBATCH --exclude={{ exclude }}
+{%- endif %}
+
+set -euo pipefail
+mapfile -t nodes < <(scontrol show hostnames "$SLURM_JOB_NODELIST")
+head_ip="$(getent ahostsv4 "${nodes[0]}" | awk 'NR == 1 {print $1}')"
+[[ -n "$head_ip" ]] || { echo "Could not resolve ${nodes[0]} to IPv4" >&2; exit 1; }
+echo "Server URL: http://${head_ip}:{{ port }}"
+
+srun \
+  --nodes={{ nodes }} \
+  --ntasks={{ nodes }} \
+  --ntasks-per-node=1 \
+  --gpus-per-node={{ gpus_per_node }} \
+  --cpus-per-task={{ cpus_per_task }} \
+  --mpi=pmix \
+  --kill-on-bad-exit=1 \
+{%- if container_edf %}
+  --environment="{{ container_edf }}" \
+{%- endif %}
+{%- if container_mounts %}
+  --container-mounts="{{ container_mounts }}" \
+{%- endif %}
+{%- if srun_extra_args %}
+  {{ srun_extra_args }} \
+{%- endif %}
+  -u bash -s -- "$head_ip" <<'VLLM_ROLE'
+set -euo pipefail
+head_ip="$1"
+local_dp={{ data_parallel_size_local }}
+start_rank=$((SLURM_NODEID * local_dp))
+
+export LOCAL_WORLD_SIZE={{ gpus_per_node }}
+export CUDA_VISIBLE_DEVICES="$(seq -s, 0 $(({{ gpus_per_node }} - 1)))"
+export XDG_CACHE_HOME="/tmp/spellbook-vllm-${SLURM_JOB_ID}-${SLURM_NODEID}"
+export VLLM_CACHE_ROOT="${XDG_CACHE_HOME}/vllm"
+export FLASHINFER_WORKSPACE_BASE="${XDG_CACHE_HOME}/flashinfer"
+export TORCH_HOME="${XDG_CACHE_HOME}/torch"
+export TRITON_CACHE_DIR="${XDG_CACHE_HOME}/triton"
+export TORCHINDUCTOR_CACHE_DIR="${XDG_CACHE_HOME}/inductor"
+mkdir -p "$TRITON_CACHE_DIR" "$TORCHINDUCTOR_CACHE_DIR"
+{% for key, value in env_vars.items() %}
+export {{ key }}="{{ value }}"
+{%- endfor %}
+
+args=(
+  {{ server_args | join(" \
+  ") }}
+  "--data-parallel-address" "$head_ip"
+  "--data-parallel-rpc-port" "{{ data_parallel_rpc_port }}"
+)
+if [[ "$start_rank" == 0 ]]; then
+  args+=("--api-server-count" "1" "--port" "{{ port }}")
+else
+  args+=("--data-parallel-start-rank" "$start_rank" "--headless")
+fi
+exec vllm serve "${args[@]}"
+VLLM_ROLE

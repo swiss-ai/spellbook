@@ -359,6 +359,10 @@ application images, so each directory can be copied straight into that repositor
   UCCL-EP, DeepGEMM, grouped_gemm, Emerging-Optimizers, flash-linear-attention 0.5.2)
   plus the full NeMo-RL runtime stack, so `NemoRLExperiment.overlay_paths` can be empty.
   NeMo-RL, Megatron-Bridge and Megatron-LM are not vendored; bind-mount those checkouts.
+- [`containers/vllm-apertus2`](containers/vllm-apertus2/README.md): the pinned
+  Apertus2 vLLM 0.28 image for GH200. It includes upstream UCCL EP/P2P, the matching
+  NIXL UCCL plugin, and Run:ai model streaming. Its EDF keeps persistent caches off
+  `$HOME` and exposes CXI for both MoE expert exchange and later disaggregated KV transfer.
 
 The upstream pipeline appends its own Alps revision to the base image named in
 `profile.env`, so published tags follow that pipeline rather than this repository.
@@ -391,10 +395,11 @@ submit(
 )
 ```
 
-Interact with it using curl or the dependency-free Python client:
+Spellbook also has native multi-node vLLM launchers. `VLLMServerConfig` runs one vLLM parent per node, while `VLLMPDServerConfig` creates separate prefill and decode groups with NIXL/UCCL KV transfer and a routing proxy. Ray is not required. Interact with any backend using curl or the dependency-free Python client:
 
 ```bash
 export INFERENCE_SERVER_URL="http://${COMPUTE_HOST}:5000"
+export INFERENCE_MODEL="model"  # Required for vLLM requests.
 python -m tools.inference.client health
 python -m tools.inference.client interactive
 ```
