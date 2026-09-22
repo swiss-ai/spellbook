@@ -4,6 +4,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+from importlib import metadata
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,7 +16,7 @@ class GymDataTest(unittest.TestCase):
     def test_head_deps_falls_back_when_openai_is_absent(self) -> None:
         def version(name: str) -> str:
             if name == "openai":
-                raise __import__("importlib").metadata.PackageNotFoundError(name)
+                raise metadata.PackageNotFoundError(name)
             return "2.55.1"
 
         with patch("tools.gym_data.prepare.md.version", side_effect=version):
