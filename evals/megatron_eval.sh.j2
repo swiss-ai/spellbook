@@ -130,7 +130,7 @@ srun \
 {%- if srun_extra_args %}
   {{ srun_extra_args }} \
 {%- endif %}
-  -u bash -lc '
+  -u bash -lc '{% filter replace("'", "'\"'\"'") %}
 set -e
 set -x
 ulimit -c 0
@@ -411,7 +411,7 @@ python -m torch.distributed.run \
 suite_barrier {{ loop.index0 }}
 {% endif %}
 {% endfor %}
-'
+{% endfilter %}'
 {% if eval_runs | length > 1 %}
 rm -rf "{{ suite_output_dir }}/.spellbook-suite-${SLURM_JOB_ID}"
 {% endif %}

@@ -1,5 +1,6 @@
 import argparse
 import hashlib
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -218,6 +219,20 @@ class MegatronPathTest(unittest.TestCase):
         cfg.lm_eval_install_with_python = False
         self.assertIn("SPELLBOOK_PIP=(pip)", _render(cfg, 10, False))
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+    def test_lm_eval_install_preserves_inner_shell_quotes(self) -> None:
+        cfg = _config("/path/to/Megatron-LM")
+        cfg.lm_eval_install = "lm_eval @ git+https://example.com/lm-eval.git@abc123"
+        cfg.lm_eval_install_with_python = True
+        cfg.extra_args = "--linear-attention-freq '[1,1,1,0]'"
+        script = _render(cfg, 10, False)
+
+        quoted_body = script.split("-u bash -lc ", 1)[1].split("\n'\n", 1)[0] + "\n'"
+        (body,) = shlex.split(quoted_body)
+        self.assertIn("sed -n 's/^Location: //p'", body)
+        self.assertIn("-name '*.ready'", body)
+        self.assertIn("--linear-attention-freq", body)
+        subprocess.run(["bash", "-n", "-c", body], check=True)
 
     def test_missing_dotenv_file_is_allowed(self) -> None:
         script = _render(_config("/path/to/Megatron-LM"), 10, False)
