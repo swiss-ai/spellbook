@@ -95,12 +95,15 @@ def _validate(cfg: BridgeExportConfig) -> tuple[Path, Path, Path | None]:
     checkpoint = Path(cfg.megatron_path).expanduser().resolve()
     if not checkpoint.is_dir():
         raise ValueError(f"Megatron checkpoint does not exist: {checkpoint}")
-    has_run_config = (checkpoint / "run_config.yaml").is_file() or any(
-        child.is_dir() and child.name.startswith("iter_") and (child / "run_config.yaml").is_file()
-        for child in checkpoint.iterdir()
-    )
-    if not has_run_config:
-        raise ValueError(f"Megatron checkpoint has no run_config.yaml: {checkpoint}")
+    checkpoint_dirs = [checkpoint] + [
+        child for child in checkpoint.iterdir() if child.is_dir() and child.name.startswith("iter_")
+    ]
+    if not any(
+        (directory / name).is_file()
+        for directory in checkpoint_dirs
+        for name in ("run_config.yaml", "common.pt")
+    ):
+        raise ValueError(f"Megatron checkpoint has no run_config.yaml or common.pt: {checkpoint}")
     for name in ("nodes", "gpus_per_node", "cpus_per_task", "tp", "pp", "ep", "etp"):
         if getattr(cfg, name) <= 0:
             raise ValueError(f"{name} must be greater than zero")

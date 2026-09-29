@@ -85,9 +85,16 @@ class MegatronBridgeConversionTest(unittest.TestCase):
         self.assertTrue(run.call_args.kwargs["text"])
         self.assertTrue(run.call_args.kwargs["check"])
 
-    def test_requires_bridge_run_config(self) -> None:
+    def test_accepts_native_common_pt_without_run_config(self) -> None:
         (self.checkpoint / "run_config.yaml").unlink()
-        with self.assertRaisesRegex(ValueError, "run_config.yaml"):
+        (self.checkpoint / "common.pt").touch()
+        self.assertIn(str(self.checkpoint), render_command(self.config()))
+        command = render_command(self.config(megatron_path=str(self.checkpoint.parent)))
+        self.assertIn(str(self.checkpoint.parent), command)
+
+    def test_requires_checkpoint_metadata(self) -> None:
+        (self.checkpoint / "run_config.yaml").unlink()
+        with self.assertRaisesRegex(ValueError, "run_config.yaml or common.pt"):
             render_command(self.config())
 
     def test_rejects_invalid_parallelism(self) -> None:
