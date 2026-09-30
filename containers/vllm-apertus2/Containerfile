@@ -30,8 +30,8 @@ RUN set -eux; \
 
 FROM uv-base AS vllm-builder
 
-ARG VLLM_REPO="https://github.com/andresnowak/vllm.git"
-ARG VLLM_REF="929e3cfbed769a2fe44239fe568befa8700351d4"
+ARG VLLM_REPO="https://github.com/swiss-ai/vllm.git"
+ARG VLLM_REF="d4d41485a1cc1aee0d906d19f41523d2fdc67463"
 ARG VLLM_TARGET_DEVICE="cuda"
 ARG VLLM_CUDA_ARCH_LIST="9.0"
 ARG VLLM_TORCH_CUDA_ARCH_LIST="9.0"
@@ -91,7 +91,7 @@ ARG UCCL_REPO="https://github.com/andresnowak/uccl.git"
 ARG UCCL_REF="0c166355310a04b2344ca0c5c0df818b04d26af0"
 ARG UCCL_CUDA_ARCH="9.0"
 ARG UCCL_NVL_PEERS="4"
-ARG UCCL_MAX_JOBS="16"
+ARG UCCL_MAX_JOBS="8"
 ARG NANOBIND_VERSION="3.0.1"
 
 RUN source /opt/alps/package-helpers.sh; \
@@ -245,6 +245,7 @@ RUN set -eux; \
       "transformers==${TRANSFORMERS_VERSION}" "grpcio-tools==1.76.0" intervaltree pytest; \
     uv pip install --system --no-cache -c /opt/alps/base-pins.txt --no-deps /opt/wheels/uccl/uccl-*.whl; \
     uv pip install --system --no-cache -c /opt/alps/base-pins.txt --no-deps /opt/wheels/uccl/deep_ep-*.whl; \
+    uv pip uninstall --system nixl nixl-cu12 nixl-cu13; \
     uv pip install --system --no-cache -c /opt/alps/base-pins.txt --no-deps /opt/wheels/nixl/nixl_cu13-*.whl; \
     uv pip install --system --no-cache -c /opt/alps/base-pins.txt --no-deps /opt/wheels/nixl/nixl-*.whl; \
     site_dir="$(python -c 'import site; print(site.getsitepackages()[0])')"; \
@@ -275,7 +276,7 @@ RUN set -eux; \
     python -c 'import torch, vllm; print("torch={} cuda={}".format(torch.__version__, torch.version.cuda)); print("vllm={}".format(vllm.__version__))'; \
     python -c 'from vllm.model_executor.models.apertus2 import Apertus2KDAForCausalLM; from vllm.third_party.flash_linear_attention.ops.kda import FusedRMSNormGated; print(Apertus2KDAForCausalLM, FusedRMSNormGated)'; \
     python -c 'import importlib.metadata as m, uccl; assert m.version("uccl") == "0.1.1"; assert m.version("deep-ep") == "0.1.0"; print("uccl={}".format(uccl.__version__))'; \
-    python -c 'import importlib.metadata as m; assert m.version("nixl") == "1.3.2"; print("nixl={}".format(m.version("nixl")))'; \
+    python -c 'import importlib.metadata as m, torch, nixl; assert torch.version.cuda.split(".")[0] == "13"; assert m.version("nixl") == m.version("nixl-cu13") == "1.3.2"; assert nixl._bindings.__name__ == "nixl_cu13._bindings"; assert not any(d.metadata["Name"].lower().replace("_", "-") == "nixl-cu12" for d in m.distributions()); print("nixl-cu13={} bindings={}".format(m.version("nixl-cu13"), nixl._bindings.__file__))'; \
     test -f "${NIXL_PLUGIN_DIR}/libplugin_UCCL.so"; \
     site_dir="$(python -c 'import site; print(site.getsitepackages()[0])')"; \
     nixl_lib_dir="$(dirname "$(find "${site_dir}" -type f -name 'libnixl.so*' -print -quit)")"; \
