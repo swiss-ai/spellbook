@@ -53,7 +53,9 @@ Use `render(cfg)` to inspect the sbatch script without submitting it. `nodes * g
 
 ## vLLM
 
-`VLLMServerConfig` launches one native vLLM parent per node. vLLM then creates its local GPU workers; the launcher does not use `torchrun`, Ray, or one Slurm task per GPU. The first node hosts the API and data-parallel coordinator. Other nodes use `--headless` and advertise their data-parallel rank range. Coordinator URLs use resolved compute-node IPv4 addresses.
+`VLLMServerConfig` defaults to one native vLLM parent per node for dense or TP>1 serving. vLLM then creates its local GPU workers; the launcher does not use `torchrun` or Ray. The first node hosts the API and data-parallel coordinator. Other nodes use `--headless` and advertise their data-parallel rank range. Coordinator URLs use resolved compute-node IPv4 addresses.
+
+TP=1 MoE (`enable_expert_parallel=True`) automatically uses external data parallelism: one Slurm task and vLLM DP rank per GPU. Each rank gets a node-local compiler cache and distinct HTTP port (`port + local GPU index`); Slurm binds its CPU cores and local memory to the matching GPU/NUMA node. Route requests across every rank endpoint (`http://<node>:<port+local-GPU-index>`). Set `external_data_parallel=False` to force the compatible per-node launcher; set it to `True` to request per-GPU mode explicitly (which requires TP=1 MoE).
 
 ```bash
 python -m tools.inference.examples.vllm_server render
@@ -62,7 +64,7 @@ python -m tools.inference.examples.vllm_server submit
 
 Pass additional engine flags through `vllm_args`. JSON-valued flags must be serialized strings, for example `model_loader_extra_config='{"distributed":true,"concurrency":16}'`.
 
-`VLLMPDServerConfig` is deliberately separate. It allocates distinct prefill and decode node groups, launches native vLLM data parallelism in each group, and starts a configurable vLLM-compatible PD proxy. The validated Alps topology uses DeepEP high-throughput for prefill, DeepEP low-latency for decode, and `NixlConnector` with the UCCL plugin for KV transfer.
+`VLLMPDServerConfig` is deliberately separate. It allocates distinct prefill and decode node groups, launches native vLLM data parallelism in each group, and starts a configurable vLLM-compatible PD proxy. TP=1 defaults to one rank per GPU with vLLM's native MP executor and Slurm-local GPU placement; all ranks are started in one shared Slurm step, avoiding separate-step VNI isolation. TP>1 keeps the per-node launcher. Set `external_data_parallel=False` to force the per-node mode. Route requests across each prefill and decode rank endpoint. The validated Alps topology uses DeepEP high-throughput for prefill, DeepEP low-latency for decode, and `NixlConnector` with the UCCL plugin for KV transfer.
 
 ```bash
 export VLLM_PD_PROXY_SCRIPT=/path/to/vllm/examples/disaggregated/disaggregated_serving/disagg_proxy_multiturn.py

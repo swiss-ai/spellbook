@@ -34,7 +34,7 @@ def _config(**changes: Any) -> VLLMPDServerConfig:
 
 class VLLMPDServerTest(unittest.TestCase):
     def test_renders_validated_uccl_topology(self) -> None:
-        script = render(_config())
+        script = render(_config(external_data_parallel=False))
 
         self.assertIn("#SBATCH --nodes=4", script)
         self.assertIn("deepep_high_throughput", script)
@@ -59,6 +59,68 @@ class VLLMPDServerTest(unittest.TestCase):
         self.assertNotIn("torchrun", script)
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
 
+    def test_renders_default_external_dp_per_gpu_ranks(self) -> None:
+        script = render(_config())
+
+        self.assertIn("#SBATCH --gpus-per-node=4", script)
+        self.assertEqual(script.count("srun --overlap --nodes=4 --ntasks=16"), 1)
+        self.assertIn("--ntasks-per-node=4 --gpus-per-node=4", script)
+        self.assertIn("--input=all", script)
+        self.assertIn("if (( procid < 8 )); then", script)
+        self.assertIn('role=prefill; rank="$procid"', script)
+        self.assertIn('rank="$((procid - 8))"', script)
+        self.assertIn('export RANK="$rank" LOCAL_RANK="$SLURM_LOCALID"', script)
+        self.assertIn(
+            f'export PYTHONPATH="{Path(__file__).resolve().parents[1]}:${{PYTHONPATH:-}}"', script
+        )
+        self.assertIn('export MASTER_ADDR="$dp_head" MASTER_PORT="$((rpc_port + 1000))"', script)
+        self.assertIn(
+            'api_port="$prefill_api"; backend="$prefill_backend"; kv_role=kv_producer', script
+        )
+        self.assertIn(
+            'api_port="$decode_api"; backend="$decode_backend"; kv_role=kv_consumer', script
+        )
+        self.assertIn("SLINGSHOT_VNIS=${SLINGSHOT_VNIS:-}", script)
+        self.assertIn("SLINGSHOT_DEVICES=${SLINGSHOT_DEVICES:-}", script)
+        self.assertIn("SLINGSHOT_SVC_IDS=${SLINGSHOT_SVC_IDS:-}", script)
+        self.assertIn("SLURM_STEP_ID=${SLURM_STEP_ID:-}", script)
+        self.assertIn("${role}-${SLURM_JOB_ID}-${rank}-${SLURM_LOCALID}.log", script)
+        self.assertIn('[[ -n "${visible_gpus[$SLURM_LOCALID]:-}" ]]', script)
+        self.assertNotIn('export CUDA_VISIBLE_DEVICES="${visible_gpus[$SLURM_LOCALID]}"', script)
+        self.assertNotIn("--gpus-per-task", script)
+        self.assertIn("--cpu-bind=cores --mem-bind=local", script)
+        self.assertIn("--data-parallel-rank", script)
+        self.assertIn("--data-parallel-size", script)
+        self.assertIn("  8", script)
+        self.assertIn('"--data-parallel-size-local" "1"', script)
+        self.assertIn('"--distributed-executor-backend" "mp"', script)
+        self.assertIn('"--worker-cls" "tools.inference.vllm_slurm_worker.SlurmGPUWorker"', script)
+        self.assertNotIn('"--distributed-executor-backend" "external_launcher"', script)
+        self.assertIn('"--port" "$((api_port + SLURM_LOCALID))"', script)
+        self.assertIn("FLASHINFER_WORKSPACE_BASE", script)
+        self.assertIn("export LOCAL_WORLD_SIZE=4", script)
+        self.assertIn("export VLLM_NIXL_SIDE_CHANNEL_PORT=5600", script)
+        self.assertIn("--prefiller-hosts", script)
+        self.assertIn('--prefiller-ports "${prefiller_ports[@]}"', script)
+        self.assertIn('--decoder-ports "${decoder_ports[@]}"', script)
+        self.assertNotIn("join_csv", script)
+        self.assertNotIn("--headless", script)
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+    def test_tp2_default_keeps_per_node_launcher(self) -> None:
+        script = render(_config(tensor_parallel_size=2))
+        self.assertIn("#SBATCH --ntasks-per-node=1", script)
+        self.assertNotIn('"--distributed-executor-backend" "external_launcher"', script)
+        self.assertIn("--data-parallel-size-local", script)
+
+    def test_external_dp_requires_tp1_and_explicit_numa_binding(self) -> None:
+        with self.assertRaisesRegex(ValueError, "tensor_parallel_size=1"):
+            render(_config(external_data_parallel=True, tensor_parallel_size=2))
+        with self.assertRaisesRegex(ValueError, "automatic --numa-bind"):
+            render(_config(external_data_parallel=True, vllm_args={"numa_bind": "auto"}))
+        with self.assertRaisesRegex(ValueError, "not enough ports"):
+            render(_config(external_data_parallel=True, prefill_rpc_port=65000))
+
     def test_submit_creates_log_directory(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cfg = _config(log_dir=str(Path(tmp) / "logs"))
@@ -69,8 +131,10 @@ class VLLMPDServerTest(unittest.TestCase):
     def test_rejects_mismatched_groups_and_ports(self) -> None:
         with self.assertRaisesRegex(ValueError, "must match"):
             render(_config(prefill_nodes=1, decode_nodes=2))
-        with self.assertRaisesRegex(ValueError, "distinct"):
+        with self.assertRaisesRegex(ValueError, "overlap"):
             render(_config(prefill_port=8200))
+        with self.assertRaisesRegex(ValueError, "distinct"):
+            render(_config(prefill_port=8200, external_data_parallel=False))
         with self.assertRaisesRegex(ValueError, "proxy_script"):
             render(_config(proxy_script=""))
         with self.assertRaisesRegex(ValueError, "proxy_health_path"):

@@ -21,6 +21,7 @@ class VLLMPDServerConfig:
     proxy_script: str
     served_model_name: str = ""
     tensor_parallel_size: int = 1
+    external_data_parallel: bool | None = None
     prefill_nodes: int = 2
     decode_nodes: int = 2
     gpus_per_node: int = 4
@@ -71,6 +72,13 @@ class VLLMPDServerConfig:
         return self.decode_nodes * self.data_parallel_size_local
 
 
+def _use_external_data_parallel(cfg: VLLMPDServerConfig) -> bool:
+    """Resolve automatic per-GPU DP for single-GPU PD ranks."""
+    if cfg.external_data_parallel is not None:
+        return cfg.external_data_parallel
+    return cfg.tensor_parallel_size == 1
+
+
 def _validate(cfg: VLLMPDServerConfig) -> None:
     if not _JOB_NAME.fullmatch(cfg.name):
         raise ValueError("name may contain only letters, numbers, dots, underscores, and hyphens")
@@ -94,6 +102,44 @@ def _validate(cfg: VLLMPDServerConfig) -> None:
         raise ValueError("gpus_per_node must be divisible by tensor_parallel_size")
     if cfg.prefill_data_parallel_size != cfg.decode_data_parallel_size:
         raise ValueError("prefill and decode data-parallel sizes must match")
+    if _use_external_data_parallel(cfg):
+        if cfg.tensor_parallel_size != 1:
+            raise ValueError("external data parallelism requires tensor_parallel_size=1")
+        if cfg.cpus_per_task % cfg.gpus_per_node:
+            raise ValueError("cpus_per_task must be divisible by gpus_per_node")
+        if cfg.vllm_args.get("numa_bind") and not cfg.vllm_args.get("numa_bind_nodes"):
+            raise ValueError(
+                "external data parallelism cannot use automatic --numa-bind; "
+                "set explicit numa_bind_nodes or configure Slurm CPU binding"
+            )
+        if (
+            cfg.prefill_port + cfg.gpus_per_node > 65536
+            or cfg.decode_port + cfg.gpus_per_node > 65536
+        ):
+            raise ValueError("not enough HTTP ports for per-GPU ranks")
+        ranges = {
+            "prefill": set(range(cfg.prefill_port, cfg.prefill_port + cfg.gpus_per_node)),
+            "decode": set(range(cfg.decode_port, cfg.decode_port + cfg.gpus_per_node)),
+            "NIXL": set(
+                range(
+                    cfg.nixl_side_channel_port,
+                    cfg.nixl_side_channel_port + cfg.prefill_data_parallel_size,
+                )
+            ),
+            "fixed": {
+                cfg.proxy_port,
+                cfg.prefill_rpc_port,
+                cfg.decode_rpc_port,
+                cfg.prefill_rpc_port + 1000,
+                cfg.decode_rpc_port + 1000,
+            },
+        }
+        if any(max(ports) > 65535 for ports in ranges.values()):
+            raise ValueError("not enough ports for per-GPU ranks")
+        groups = list(ranges.items())
+        for index, (name, ports) in enumerate(groups):
+            if any(ports & other_ports for _, other_ports in groups[index + 1 :]):
+                raise ValueError(f"external DP port ranges overlap at {name}")
     ports = (
         cfg.prefill_port,
         cfg.decode_port,
@@ -118,10 +164,10 @@ def _common_args(cfg: VLLMPDServerConfig) -> list[str]:
         str(cfg.tensor_parallel_size),
         "--data-parallel-size",
         str(cfg.prefill_data_parallel_size),
-        "--data-parallel-size-local",
-        str(cfg.data_parallel_size_local),
-        "--enable-expert-parallel",
     ]
+    if not _use_external_data_parallel(cfg):
+        args.extend(["--data-parallel-size-local", str(cfg.data_parallel_size_local)])
+    args.append("--enable-expert-parallel")
     if cfg.served_model_name:
         args.extend(["--served-model-name", cfg.served_model_name])
     args.extend(to_args(cfg.vllm_args))
@@ -129,7 +175,7 @@ def _common_args(cfg: VLLMPDServerConfig) -> list[str]:
 
 
 def render(cfg: VLLMPDServerConfig) -> str:
-    """Render two explicit native vLLM groups and a routing proxy."""
+    """Render native PD groups, using external per-GPU DP when requested."""
     _validate(cfg)
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),
@@ -142,12 +188,19 @@ def render(cfg: VLLMPDServerConfig) -> str:
             "total_nodes": cfg.total_nodes,
             "data_parallel_size_local": cfg.data_parallel_size_local,
             "data_parallel_size": cfg.prefill_data_parallel_size,
+            "cpus_per_gpu": cfg.cpus_per_task // cfg.gpus_per_node,
+            "worker_pythonpath": str(_TEMPLATES_DIR.parent.parent),
             "log_dir": str(Path(cfg.log_dir).expanduser().resolve()),
             "proxy_script": str(Path(cfg.proxy_script).expanduser().resolve()),
             "common_args": [_shell_quote(arg) for arg in _common_args(cfg)],
         }
     )
-    return env.get_template("vllm_pd_server.sh.j2").render(context)
+    template = (
+        "vllm_pd_server_external_dp.sh.j2"
+        if _use_external_data_parallel(cfg)
+        else "vllm_pd_server.sh.j2"
+    )
+    return env.get_template(template).render(context)
 
 
 def submit(cfg: VLLMPDServerConfig) -> str:

@@ -25,6 +25,7 @@ class VLLMServerConfig:
     served_model_name: str = ""
     tensor_parallel_size: int = 1
     enable_expert_parallel: bool = False
+    external_data_parallel: bool | None = None
     all2all_backend: str = ""
     vllm_args: dict[str, Any] = dataclasses.field(default_factory=dict)
 
@@ -58,6 +59,13 @@ class VLLMServerConfig:
         return self.nodes * self.data_parallel_size_local
 
 
+def _use_external_data_parallel(cfg: VLLMServerConfig) -> bool:
+    """Resolve automatic per-GPU DP for supported TP=1 MoE configurations."""
+    if cfg.external_data_parallel is not None:
+        return cfg.external_data_parallel
+    return cfg.tensor_parallel_size == 1 and cfg.enable_expert_parallel
+
+
 def _validate(cfg: VLLMServerConfig) -> None:
     if not _JOB_NAME.fullmatch(cfg.name):
         raise ValueError("name may contain only letters, numbers, dots, underscores, and hyphens")
@@ -75,6 +83,17 @@ def _validate(cfg: VLLMServerConfig) -> None:
             raise ValueError(f"{field_name} must be greater than zero")
     if cfg.gpus_per_node % cfg.tensor_parallel_size:
         raise ValueError("gpus_per_node must be divisible by tensor_parallel_size")
+    if _use_external_data_parallel(cfg):
+        if cfg.tensor_parallel_size != 1 or not cfg.enable_expert_parallel:
+            raise ValueError("external data parallelism requires TP=1 and expert parallelism")
+        if cfg.cpus_per_task % cfg.gpus_per_node:
+            raise ValueError("cpus_per_task must be divisible by gpus_per_node")
+        if cfg.vllm_args.get("numa_bind") and not cfg.vllm_args.get("numa_bind_nodes"):
+            raise ValueError(
+                "external data parallelism needs explicit NUMA nodes or Slurm CPU binding"
+            )
+        if cfg.port + cfg.gpus_per_node > 65536:
+            raise ValueError("not enough HTTP ports for GPU ranks")
     for port in (cfg.port, cfg.data_parallel_rpc_port):
         if port > 65535:
             raise ValueError("ports must be in [1, 65535]")
@@ -92,9 +111,9 @@ def _server_args(cfg: VLLMServerConfig) -> list[str]:
         str(cfg.tensor_parallel_size),
         "--data-parallel-size",
         str(cfg.data_parallel_size),
-        "--data-parallel-size-local",
-        str(cfg.data_parallel_size_local),
     ]
+    if not _use_external_data_parallel(cfg):
+        args.extend(["--data-parallel-size-local", str(cfg.data_parallel_size_local)])
     if cfg.served_model_name:
         args.extend(["--served-model-name", cfg.served_model_name])
     if cfg.enable_expert_parallel:
@@ -116,6 +135,7 @@ def _context(cfg: VLLMServerConfig) -> dict[str, Any]:
             "log_dir": str(Path(cfg.log_dir).expanduser().resolve()),
             "data_parallel_size": cfg.data_parallel_size,
             "data_parallel_size_local": cfg.data_parallel_size_local,
+            "cpus_per_gpu": cfg.cpus_per_task // cfg.gpus_per_node,
             "server_args": [_shell_quote(arg) for arg in _server_args(cfg)],
         }
     )
@@ -123,14 +143,17 @@ def _context(cfg: VLLMServerConfig) -> dict[str, Any]:
 
 
 def render(cfg: VLLMServerConfig) -> str:
-    """Render one vLLM process per node, with local multiprocessing for GPUs."""
+    """Render internal per-node or external per-GPU data parallelism."""
     _validate(cfg)
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),
         undefined=StrictUndefined,
         keep_trailing_newline=True,
     )
-    return env.get_template("vllm_server.sh.j2").render(_context(cfg))
+    template = (
+        "vllm_server_external_dp.sh.j2" if _use_external_data_parallel(cfg) else "vllm_server.sh.j2"
+    )
+    return env.get_template(template).render(_context(cfg))
 
 
 def _sbatch(script: str, qos: str = "") -> str:
