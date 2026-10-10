@@ -1,6 +1,6 @@
 [project]
 name = "spellbook"
-version = "0.3.0"
+version = "0.3.1"
 description = "Declarative Slurm experiment runner for Megatron-LM"
 readme = "README.md"
 requires-python = ">=3.11"

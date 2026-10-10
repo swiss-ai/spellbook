@@ -13,8 +13,9 @@ Eval watcher — two modes of operation:
     Renders evals/<model>/watcher.sh and submits it; each run re-submits itself
     with --begin=now+<interval>hour so the chain continues indefinitely.
 
-The config file must define either a module-level `cfg: MegatronEvalConfig` or a
-`build_eval_config(model_name)` factory used with `--model`. It may also define
+The config file must define a module-level MegatronEvalConfig or
+CheckpointPipelineConfig, or a `build_eval_config(model_name)` factory used with
+`--model`. It may also define
 `watch_checkpoint_dir` (str) to override cfg.checkpoint_dir/<model_name> as the
 directory containing latest_checkpointed_iteration.txt.
 """
@@ -29,13 +30,17 @@ import sys
 from pathlib import Path
 
 from evals.megatron_eval import MegatronEvalConfig, render_watcher_script, submit
+from evals.pipeline import CheckpointPipelineConfig
+from evals.pipeline import submit as submit_pipeline
+
+EvalConfig = MegatronEvalConfig | CheckpointPipelineConfig
 
 
 def _load_config(
     config_path: str,
     model_name: str | None = None,
     group_name: str | None = None,
-) -> tuple[MegatronEvalConfig, str | None, str | None]:
+) -> tuple[EvalConfig, str | None, str | None]:
     path = Path(config_path).resolve()
     spec = importlib.util.spec_from_file_location("_eval_config", path)
     if spec is None or spec.loader is None:
@@ -52,15 +57,19 @@ def _load_config(
         builder = getattr(mod, "build_eval_config", None)
         if callable(builder):
             cfg = builder(model_name, group_name) if group_name is not None else builder(model_name)
-    if not isinstance(cfg, MegatronEvalConfig):
+    if not isinstance(cfg, (MegatronEvalConfig, CheckpointPipelineConfig)):
         print(
-            f"ERROR: {config_path} must define `cfg: MegatronEvalConfig` or "
+            f"ERROR: {config_path} must define a MegatronEvalConfig or CheckpointPipelineConfig, or "
             "`build_eval_config(model_name)` used with --model"
         )
         sys.exit(1)
     return (
         cfg,
-        getattr(mod, "watch_checkpoint_dir", None),
+        getattr(
+            mod,
+            "watch_checkpoint_dir",
+            cfg.checkpoint_dir if isinstance(cfg, CheckpointPipelineConfig) else None,
+        ),
         getattr(mod, "watch_state_dir", None),
     )
 
@@ -75,12 +84,12 @@ def _latest_step(checkpoint_dir: Path) -> int | None:
     return int(text)
 
 
-def _watcher_name(cfg: MegatronEvalConfig, group_name: str | None = None) -> str:
+def _watcher_name(cfg: EvalConfig, group_name: str | None = None) -> str:
     return cfg.model_name if group_name is None else f"{cfg.model_name}-{group_name}"
 
 
 def _state_file(
-    cfg: MegatronEvalConfig,
+    cfg: EvalConfig,
     state_dir: str | None = None,
     group_name: str | None = None,
 ) -> Path:
@@ -108,6 +117,18 @@ def _consumed_tokens(step: int, tokens_per_step: int | None) -> int | None:
     return step * tokens_per_step
 
 
+def _submit(cfg: EvalConfig, step: int, args: argparse.Namespace) -> None:
+    if isinstance(cfg, CheckpointPipelineConfig):
+        submit_pipeline(cfg, step, dependency_singleton=args.dependency_singleton)
+    else:
+        submit(
+            cfg,
+            step,
+            dependency_singleton=args.dependency_singleton,
+            consumed_tokens=_consumed_tokens(step, args.consumed_tokens_per_step),
+        )
+
+
 def cmd_check(args: argparse.Namespace) -> None:
     group_name = args.group
     cfg, watch_dir_override, state_dir = _load_config(args.config, args.model, group_name)
@@ -119,12 +140,7 @@ def cmd_check(args: argparse.Namespace) -> None:
 
     if args.step is not None:
         # Called from watcher.sh with the step already validated by bash.
-        submit(
-            cfg,
-            args.step,
-            dependency_singleton=args.dependency_singleton,
-            consumed_tokens=_consumed_tokens(args.step, args.consumed_tokens_per_step),
-        )
+        _submit(cfg, args.step, args)
         return
 
     ckpt_dir = (
@@ -145,17 +161,12 @@ def cmd_check(args: argparse.Namespace) -> None:
         return
 
     print(f"New checkpoint detected: step {latest}. Submitting eval...")
-    submit(
-        cfg,
-        latest,
-        dependency_singleton=args.dependency_singleton,
-        consumed_tokens=_consumed_tokens(latest, args.consumed_tokens_per_step),
-    )
+    _submit(cfg, latest, args)
     _record_step(state, latest)
 
 
 def _watcher_stop_file(
-    cfg: MegatronEvalConfig,
+    cfg: EvalConfig,
     project_dir: Path,
     state_dir: str | None = None,
     group_name: str | None = None,

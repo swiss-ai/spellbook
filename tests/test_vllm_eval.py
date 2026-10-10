@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
-from evals.vllm_eval import VLLMEvalConfig, render, submit
+from evals.vllm_eval import VLLMEvalConfig, render, render_parallel, submit, submit_parallel
 
 
 def _config(**changes: Any) -> VLLMEvalConfig:
@@ -21,6 +21,41 @@ def _config(**changes: Any) -> VLLMEvalConfig:
 
 
 class VLLMEvalTest(unittest.TestCase):
+    def test_parallel_api_clients_share_one_allocation(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            configs = [
+                _config(
+                    model_name=f"client-{index}",
+                    model="megachonk",
+                    tokenizer="/model",
+                    api_base_url="http://server:8000/v1/completions",
+                    cpus_per_task=8,
+                    memory="64G",
+                    log_dir=str(root / "logs"),
+                )
+                for index in range(4)
+            ]
+            path = render_parallel(configs, root / "rendered")
+            script = path.read_text()
+            self.assertIn("#SBATCH --nodes=1", script)
+            self.assertIn("#SBATCH --cpus-per-task=32", script)
+            self.assertEqual(script.count('pids+=("$!")'), 4)
+            subprocess.run(["bash", "-n", str(path)], check=True)
+            for child in path.parent.glob("client-*.sbatch"):
+                self.assertIn("--cpu-bind=cores --mem=64G", child.read_text())
+                subprocess.run(["bash", "-n", str(child)], check=True)
+            result = subprocess.CompletedProcess([], 0, "123;cluster\n", "")
+            with patch("evals.vllm_eval.subprocess.run", return_value=result):
+                self.assertEqual(submit_parallel(configs, root / "rendered"), "123")
+
+    def test_parallel_clients_require_api_mode_and_compatible_resources(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, "At least one"):
+                render_parallel([], Path(directory))
+            with self.assertRaisesRegex(ValueError, "existing API server"):
+                render_parallel([_config()], Path(directory))
+
     def test_uses_standard_lm_eval_vllm_backend(self) -> None:
         script = render(_config(tokenizer="/models/tokenizer", max_model_len=8192))
 

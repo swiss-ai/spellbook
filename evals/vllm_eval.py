@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import os
 import re
+import shlex
 import subprocess
 import tempfile
 from pathlib import Path
@@ -225,6 +226,83 @@ def render(cfg: VLLMEvalConfig) -> str:
         }
     )
     return env.get_template("vllm_eval.sh.j2").render(context)
+
+
+def render_parallel(configs: list[VLLMEvalConfig], output_dir: Path) -> Path:
+    """Render parallel API clients sharing one Slurm allocation."""
+    if not configs:
+        raise ValueError("At least one API client is required")
+
+    first = configs[0]
+    settings = ("account", "partition", "reservation", "qos", "exclude", "run_time", "log_dir")
+    for config in configs:
+        _validate(config)
+        if not config.api_base_url:
+            raise ValueError("Parallel clients require an existing API server")
+        if any(getattr(config, key) != getattr(first, key) for key in settings):
+            raise ValueError("Parallel clients must share Slurm settings and log_dir")
+
+    if len({config.model_name for config in configs}) != len(configs):
+        raise ValueError("Parallel clients must have distinct model_name values")
+
+    output_dir = output_dir.resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+    output_dir = Path(tempfile.mkdtemp(prefix="api-evals-", dir=output_dir))
+    log_dir = Path(first.log_dir).expanduser().resolve() / "api-evals"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    lines = [
+        "#!/bin/bash",
+        "#SBATCH --nodes=1",
+        "#SBATCH --ntasks=1",
+        f"#SBATCH --cpus-per-task={sum(config.cpus_per_task for config in configs)}",
+        f"#SBATCH --account={first.account}",
+        f"#SBATCH --partition={first.partition}",
+        f"#SBATCH --time={first.run_time}",
+        "#SBATCH --job-name=api-evals",
+        f"#SBATCH --output={shlex.quote(str(log_dir / 'api-evals-%j.out'))}",
+        f"#SBATCH --error={shlex.quote(str(log_dir / 'api-evals-%j.err'))}",
+        "#SBATCH --exclusive",
+        "#SBATCH --mem=0",
+    ]
+    for key in ("reservation", "qos", "exclude"):
+        if value := getattr(first, key):
+            lines.append(f"#SBATCH --{key}={value}")
+
+    lines += ["set -euo pipefail", "pids=()"]
+    for config in configs:
+        client = dataclasses.replace(
+            config,
+            srun_extra_args=config.srun_extra_args
+            + " --exclusive --exact --nodes=1 --ntasks=1 --gres=none --cpu-bind=cores"
+            + (f" --mem={config.memory}" if config.memory else ""),
+        )
+        path = output_dir / f"{config.model_name}.sbatch"
+        path.write_text(render(client))
+        client_log = shlex.quote(str(log_dir / config.model_name))
+        lines += [
+            f'bash {shlex.quote(str(path))} > {client_log}-"${{SLURM_JOB_ID}}".log 2>&1 &',
+            'pids+=("$!")',
+        ]
+
+    lines += [
+        "status=0",
+        'for pid in "${pids[@]}"; do',
+        '  wait "$pid" || status=1',
+        "done",
+        'exit "$status"',
+    ]
+    output = output_dir / "api-evals.sbatch"
+    output.write_text("\n".join(lines) + "\n")
+    return output
+
+
+def submit_parallel(configs: list[VLLMEvalConfig], output_dir: Path) -> str:
+    """Submit all API clients as parallel steps in one eval job."""
+    script = render_parallel(configs, output_dir)
+    result = subprocess.run(
+        ["sbatch", "--parsable", str(script)], capture_output=True, text=True, check=True
+    )
+    return result.stdout.strip().split(";")[0]
 
 
 def _sbatch(script: str, reservation: str, qos: str, exclude: str) -> str:

@@ -371,6 +371,15 @@ The upstream pipeline appends its own Alps revision to the base image named in
 
 Standalone operational launchers live under [`tools/`](tools/). They are separate from training experiments and evaluation pipelines.
 
+### Conversion and parallel API evaluations
+
+The existing [checkpoint watcher](evals/README.md#self-scheduling-watcher) can
+submit a model-owned pipeline script with `CheckpointPipelineConfig`. That script
+can use [commit-pinned hfconverter](tools/conversion/README.md#hfconverter), start
+vLLM and submit several API clients on one eval node with
+`evals.vllm_eval.submit_parallel`. Conversion settings and server cleanup stay in
+the experiment repository, not the watcher.
+
 ### Dynamic inference HTTP server
 
 [`tools/inference/megatron_server.py`](tools/inference/megatron_server.py) is the Megatron backend for dynamic text generation. It uses one Slurm task per GPU (no `torchrun`), binds each task's CPU and memory to the matching NUMA node, installs Quart and Hypercorn once per node inside the containerized step, and enables dynamic batching and CUDA graphs. Like experiment launches, it accepts a local or Git-backed Megatron checkout, supports commit pinning, and replaces the Megatron copy inside the container.

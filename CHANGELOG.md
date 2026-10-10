@@ -2,7 +2,17 @@
 
 Notable changes to Spellbook are documented here.
 
-## Unreleased
+## 0.3.1 - 2026-10-11
+
+### Added
+
+- Parallel API-based lm-eval clients on one Slurm node, with separate CPU sets,
+  logs and results. The eval job waits for all clients and reports failures.
+- `CheckpointPipelineConfig` lets the existing watcher submit a model-owned
+  pipeline script. The script controls conversion, serving, evaluations and
+  cleanup. The watcher keeps its existing submitted-step tracking.
+- An hfconverter export adapter with Git commit pins for hfconverter, Megatron
+  and Bridge. It uses detached worktrees and preserves the original checkouts.
 
 ## 0.3.0 - 2026-09-22
 

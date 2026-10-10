@@ -29,6 +29,7 @@ from typing import Any
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 
 from evals import flags as lm_eval_flags
+from evals.pipeline import CheckpointPipelineConfig
 from spellbook.megatron.source import (
     is_megatron_url,
     normalize_container_path,
@@ -380,7 +381,7 @@ def _sbatch(script: str, reservation: str, qos: str, exclude: str) -> str:
 
 
 def render_watcher_script(
-    cfg: MegatronEvalConfig,
+    cfg: MegatronEvalConfig | CheckpointPipelineConfig,
     config_path: str,
     interval_hours: float = 1,
     project_dir: Path | None = None,
@@ -415,11 +416,9 @@ def render_watcher_script(
         keep_trailing_newline=True,
     )
     tmpl = env.get_template("watcher.sh.j2")
-    checkpoint_dir = (
-        Path(watch_checkpoint_dir).expanduser()
-        if watch_checkpoint_dir
-        else Path(cfg.checkpoint_dir).expanduser() / cfg.model_name
-    )
+    checkpoint_dir = Path(watch_checkpoint_dir or cfg.checkpoint_dir).expanduser()
+    if not watch_checkpoint_dir and isinstance(cfg, MegatronEvalConfig):
+        checkpoint_dir /= cfg.model_name
     state_dir = (
         Path(watch_state_dir).expanduser()
         if watch_state_dir

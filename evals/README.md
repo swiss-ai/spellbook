@@ -430,6 +430,38 @@ watcher job runs
 The `trap EXIT` ensures re-scheduling happens even if the eval submission fails,
 unless the persistent stop marker has been created by the `stop` command.
 
+### Model-owned conversion and serving pipeline
+
+The same watcher can submit a script instead of an in-process Megatron eval.
+In the experiment repository, expose:
+
+```python
+from evals.pipeline import CheckpointPipelineConfig
+
+cfg = CheckpointPipelineConfig(
+    model_name="megachonk",
+    checkpoint_dir="/path/to/native/checkpoints",
+    script="/path/to/apertus2_experiments/evals/megachonk_pipeline.sbatch",
+    account="csstaff",
+    partition="normal",
+    watcher_dir="/scratch/tmp/megachonk/watchers",
+    log_dir="/scratch/tmp/megachonk/logs",
+)
+watch_state_dir = "/scratch/tmp/megachonk/state"
+```
+
+Use the existing `start` and `stop` commands. The script receives
+`--step N --checkpoint-dir ROOT --model NAME`. It owns hfconverter, the vLLM
+server, the eval job and cleanup. The watcher still uses `.submitted_steps`;
+this does not add completion tracking or automatic pipeline retries.
+
+For the eval job, `evals.vllm_eval.submit_parallel(configs, output_dir)` submits
+API clients as concurrent steps on one node. Give each client a distinct
+`model_name`, eight CPUs and suitable memory (for example `64G`). They share
+account, partition, time limit and log root. Each keeps its own results and log;
+the job waits for every client and fails if any client fails. API concurrency is
+per client; vLLM queues requests above its execution capacity.
+
 ## Adding a new model
 
 1. In your experiments repository, create a config module based on the quick-start
