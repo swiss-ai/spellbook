@@ -49,18 +49,25 @@ class VLLMServerConfig:
     container_edf: str = ""
     container_mounts: str = ""
     env_vars: dict[str, str] = dataclasses.field(default_factory=dict)
+    pipeline_parallel_size: int = 1
 
     @property
     def data_parallel_size_local(self) -> int:
+        if self.pipeline_parallel_size > 1:
+            return 1
         return self.gpus_per_node // self.tensor_parallel_size
 
     @property
     def data_parallel_size(self) -> int:
+        if self.pipeline_parallel_size > 1:
+            return 1
         return self.nodes * self.data_parallel_size_local
 
 
 def _use_external_data_parallel(cfg: VLLMServerConfig) -> bool:
     """Resolve automatic per-GPU DP for supported TP=1 MoE configurations."""
+    if cfg.pipeline_parallel_size > 1:
+        return False
     if cfg.external_data_parallel is not None:
         return cfg.external_data_parallel
     return cfg.tensor_parallel_size == 1 and cfg.enable_expert_parallel
@@ -73,6 +80,7 @@ def _validate(cfg: VLLMServerConfig) -> None:
         raise ValueError("model must not be empty")
     for field_name in (
         "tensor_parallel_size",
+        "pipeline_parallel_size",
         "nodes",
         "gpus_per_node",
         "cpus_per_task",
@@ -83,6 +91,29 @@ def _validate(cfg: VLLMServerConfig) -> None:
             raise ValueError(f"{field_name} must be greater than zero")
     if cfg.gpus_per_node % cfg.tensor_parallel_size:
         raise ValueError("gpus_per_node must be divisible by tensor_parallel_size")
+    if cfg.pipeline_parallel_size > 1:
+        if cfg.tensor_parallel_size * cfg.pipeline_parallel_size != cfg.nodes * cfg.gpus_per_node:
+            raise ValueError("TP × PP must equal nodes × gpus_per_node for one pipeline engine")
+        if cfg.external_data_parallel:
+            raise ValueError("pipeline parallelism is incompatible with external data parallelism")
+        managed = {
+            "pipeline_parallel_size",
+            "tensor_parallel_size",
+            "distributed_executor_backend",
+            "nnodes",
+            "node_rank",
+            "master_addr",
+            "master_port",
+            "headless",
+            "port",
+            "api_server_count",
+        }
+        for key in cfg.vllm_args:
+            normalized = key.replace("-", "_")
+            if normalized in managed or normalized.startswith("data_parallel_"):
+                raise ValueError(f"pipeline parallelism manages {key!r}; remove it from vllm_args")
+        if cfg.port == cfg.data_parallel_rpc_port:
+            raise ValueError("HTTP port and pipeline master port must differ")
     if _use_external_data_parallel(cfg):
         if cfg.tensor_parallel_size != 1 or not cfg.enable_expert_parallel:
             raise ValueError("external data parallelism requires TP=1 and expert parallelism")
@@ -109,11 +140,20 @@ def _server_args(cfg: VLLMServerConfig) -> list[str]:
         cfg.host,
         "--tensor-parallel-size",
         str(cfg.tensor_parallel_size),
-        "--data-parallel-size",
-        str(cfg.data_parallel_size),
     ]
-    if not _use_external_data_parallel(cfg):
-        args.extend(["--data-parallel-size-local", str(cfg.data_parallel_size_local)])
+    if cfg.pipeline_parallel_size > 1:
+        args.extend(
+            [
+                "--pipeline-parallel-size",
+                str(cfg.pipeline_parallel_size),
+                "--distributed-executor-backend",
+                "mp",
+            ]
+        )
+    else:
+        args.extend(["--data-parallel-size", str(cfg.data_parallel_size)])
+        if not _use_external_data_parallel(cfg):
+            args.extend(["--data-parallel-size-local", str(cfg.data_parallel_size_local)])
     if cfg.served_model_name:
         args.extend(["--served-model-name", cfg.served_model_name])
     if cfg.enable_expert_parallel:
@@ -143,7 +183,7 @@ def _context(cfg: VLLMServerConfig) -> dict[str, Any]:
 
 
 def render(cfg: VLLMServerConfig) -> str:
-    """Render internal per-node or external per-GPU data parallelism."""
+    """Render a pipeline engine or a data-parallel server."""
     _validate(cfg)
     env = Environment(
         loader=FileSystemLoader(str(_TEMPLATES_DIR)),

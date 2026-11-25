@@ -62,6 +62,13 @@ python -m tools.inference.examples.vllm_server render
 python -m tools.inference.examples.vllm_server submit
 ```
 
+Set `pipeline_parallel_size` above 1 to launch one pipeline-parallel engine instead
+of data-parallel replicas. For example, use `nodes=4`, `gpus_per_node=4`,
+`tensor_parallel_size=4`, and `pipeline_parallel_size=4`. TP × PP must match the
+allocated GPUs. Use a vLLM image that supports multi-node multiprocessing (`mp`).
+Only node 0 serves HTTP; the other nodes are headless. `data_parallel_rpc_port`
+sets the master port in this mode. Do not pass topology flags through `vllm_args`.
+
 Pass additional engine flags through `vllm_args`. JSON-valued flags must be serialized strings, for example `model_loader_extra_config='{"distributed":true,"concurrency":16}'`.
 
 `VLLMPDServerConfig` is deliberately separate. It allocates distinct prefill and decode node groups, launches native vLLM data parallelism in each group, and starts a configurable vLLM-compatible PD proxy. TP=1 defaults to one rank per GPU with vLLM's native MP executor and Slurm-local GPU placement; all ranks are started in one shared Slurm step, avoiding separate-step VNI isolation. TP>1 keeps the per-node launcher. Set `external_data_parallel=False` to force the per-node mode. Route requests across each prefill and decode rank endpoint. The validated Alps topology uses DeepEP high-throughput for prefill, DeepEP low-latency for decode, and `NixlConnector` with the UCCL plugin for KV transfer.

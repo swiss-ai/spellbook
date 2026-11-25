@@ -1,3 +1,4 @@
+import os
 import subprocess
 import tempfile
 import unittest
@@ -51,6 +52,56 @@ class VLLMServerTest(unittest.TestCase):
         self.assertIn("--load-format", script)
         self.assertNotIn("torchrun", script)
         subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+    def test_pipeline_parallel_server_has_one_http_rank(self) -> None:
+        cfg = _config(
+            nodes=4,
+            tensor_parallel_size=4,
+            pipeline_parallel_size=4,
+            vllm_args={"max_num_seqs": 256},
+        )
+        script = render(cfg)
+        self.assertEqual(cfg.data_parallel_size, 1)
+        self.assertIn("#SBATCH --ntasks-per-node=1", script)
+        self.assertNotIn("--data-parallel-", script)
+        subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
+        role = script.split("<<'VLLM_ROLE'\n", 1)[1].rsplit("\nVLLM_ROLE", 1)[0]
+        with tempfile.TemporaryDirectory() as tmp:
+            role = role.replace("/tmp/spellbook-vllm-", f"{tmp}/vllm-")
+            role = role.replace("exec vllm serve", "printf '%s\\n' serve")
+            for rank in (0, 3):
+                with self.subTest(rank=rank):
+                    result = subprocess.run(
+                        ["bash", "-c", role, "role", "192.0.2.1"],
+                        env=os.environ | {"SLURM_JOB_ID": "123", "SLURM_NODEID": str(rank)},
+                        text=True,
+                        capture_output=True,
+                        check=True,
+                    )
+                    args = result.stdout.splitlines()
+                    for flag, value in (
+                        ("--tensor-parallel-size", "4"),
+                        ("--pipeline-parallel-size", "4"),
+                        ("--distributed-executor-backend", "mp"),
+                        ("--nnodes", "4"),
+                        ("--node-rank", str(rank)),
+                        ("--master-addr", "192.0.2.1"),
+                        ("--master-port", "13345"),
+                        ("--max-num-seqs", "256"),
+                    ):
+                        self.assertEqual(args[args.index(flag) + 1], value)
+                    self.assertEqual("--headless" in args, rank != 0)
+                    self.assertEqual("--port" in args, rank == 0)
+
+    def test_rejects_conflicting_pipeline_configuration(self) -> None:
+        with self.assertRaisesRegex(ValueError, "must equal"):
+            render(_config(pipeline_parallel_size=2))
+        with self.assertRaisesRegex(ValueError, "external data parallelism"):
+            render(_config(pipeline_parallel_size=8, external_data_parallel=True))
+        for key in ("pipeline_parallel_size", "data-parallel-size", "node_rank", "headless"):
+            with self.subTest(key=key), self.assertRaisesRegex(ValueError, "manages"):
+                render(_config(pipeline_parallel_size=8, vllm_args={key: 1}))
 
     def test_default_moe_uses_external_data_parallel(self) -> None:
         script = render(_config())

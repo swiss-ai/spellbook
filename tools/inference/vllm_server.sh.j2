@@ -49,8 +49,10 @@ srun \
   -u bash -s -- "$head_ip" <<'VLLM_ROLE'
 set -euo pipefail
 head_ip="$1"
+{% if pipeline_parallel_size == 1 -%}
 local_dp={{ data_parallel_size_local }}
 start_rank=$((SLURM_NODEID * local_dp))
+{% endif -%}
 
 export LOCAL_WORLD_SIZE={{ gpus_per_node }}
 export CUDA_VISIBLE_DEVICES="$(seq -s, 0 $(({{ gpus_per_node }} - 1)))"
@@ -68,6 +70,18 @@ export {{ key }}="{{ value }}"
 args=(
   {{ server_args | join(" \
   ") }}
+{% if pipeline_parallel_size > 1 %}
+  "--nnodes" "{{ nodes }}"
+  "--node-rank" "$SLURM_NODEID"
+  "--master-addr" "$head_ip"
+  "--master-port" "{{ data_parallel_rpc_port }}"
+)
+if [[ "$SLURM_NODEID" == 0 ]]; then
+  args+=("--port" "{{ port }}")
+else
+  args+=("--headless")
+fi
+{% else %}
   "--data-parallel-address" "$head_ip"
   "--data-parallel-rpc-port" "{{ data_parallel_rpc_port }}"
 )
@@ -76,5 +90,6 @@ if [[ "$start_rank" == 0 ]]; then
 else
   args+=("--data-parallel-start-rank" "$start_rank" "--headless")
 fi
+{% endif %}
 exec vllm serve "${args[@]}"
 VLLM_ROLE
