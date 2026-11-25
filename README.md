@@ -404,7 +404,7 @@ submit(
 )
 ```
 
-Spellbook also has native multi-node vLLM launchers. `VLLMServerConfig` runs one vLLM parent per node, while `VLLMPDServerConfig` creates separate prefill and decode groups with NIXL/UCCL KV transfer and a routing proxy. Ray is not required. Interact with any backend using curl or the dependency-free Python client:
+Spellbook also has native multi-node vLLM launchers. `VLLMServerConfig` runs one vLLM parent per node and supports one pipeline-parallel engine across nodes, while `VLLMPDServerConfig` creates separate prefill and decode groups with NIXL/UCCL KV transfer and a routing proxy. Ray is not required. Interact with any backend using curl or the dependency-free Python client:
 
 ```bash
 export INFERENCE_SERVER_URL="http://${COMPUTE_HOST}:5000"
